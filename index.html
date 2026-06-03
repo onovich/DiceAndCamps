@@ -1082,9 +1082,7 @@
                     if (slot.owner === player) this.transitionTo(TurnState.OWNED_EVENTS);
                     if (slot.owner && slot.owner !== player) this.transitionTo(TurnState.ENEMY_EVENTS);
                     if (slot.owner && slot.owner !== player) {
-                        if (slot.type === 'TRAP') await this.triggerTrap(slot, player);
-                        if (player.hp <= 0) break;
-                        if (slot.type === 'GUARD') await this.triggerCombat(slot, player);
+                        await this.triggerEnemyFacility(slot, player);
                         if (player.hp <= 0) break;
                     } else if (slot.owner === player) {
                         await this.triggerOwnedFacility(slot, player);
@@ -1123,6 +1121,40 @@
                     this.log(`训练营鼓舞士气，ATK +${atkGain}。`);
                     this.createFloatingText(`ATK +${atkGain}`, player.meshGroup.position, "#ffb142");
                 }
+                await this.wait(260);
+            },
+
+            async triggerEnemyFacility(slot, player) {
+                if (slot.type === 'TRAP') {
+                    await this.triggerTrap(slot, player);
+                    return;
+                }
+
+                if (slot.type === 'GUARD' || slot.guards.length > 0) {
+                    await this.triggerCombat(slot, player);
+                    return;
+                }
+
+                if (slot.type === 'INCOME') {
+                    const toll = Math.min(player.gold, 16 + slot.level * 12);
+                    player.gold -= toll;
+                    slot.owner.gold += toll;
+                    this.log(`敌方金矿收取过路费 ${toll}G。`);
+                    this.createFloatingText(`-${toll}G`, player.meshGroup.position, "#eccc68");
+                } else if (slot.type === 'HEAL') {
+                    const heal = 10 + slot.level * 10;
+                    const before = slot.owner.hp;
+                    slot.owner.hp = Math.min(slot.owner.maxHp, slot.owner.hp + heal);
+                    const actual = slot.owner.hp - before;
+                    this.log(`敌方治疗营地为 ${slot.owner.name} 恢复 ${actual} HP。`);
+                    this.createFloatingText(`+${actual}HP`, slot.mesh.position, "#2ed573");
+                } else if (slot.type === 'TRAINING') {
+                    const atkGain = 1 + Math.floor(slot.level / 2);
+                    slot.owner.atk += atkGain;
+                    this.log(`敌方训练营强化了 ${slot.owner.name}，ATK +${atkGain}。`);
+                    this.createFloatingText(`敌方ATK +${atkGain}`, slot.mesh.position, "#ffb142");
+                }
+
                 await this.wait(260);
             },
 

@@ -74,6 +74,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added automatic AI battle commands so passive AI encounters cannot block on human input.
 - Added pre-battle camera close-ups for the taunt/typewriter sequence.
 - Added command-level camera focus changes for attack, skill, defend, flee, and counterattacks.
+- Added enemy passive events for income, healing, training, and guarded non-guard buildings.
 
 ## Validation Gates
 
