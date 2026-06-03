@@ -470,6 +470,19 @@
             mouse: new THREE.Vector2(),
             activeNode: null, // 当前停留的节点
             selectedSlot: null, // 当前选中的副地块
+            hoveredNode: null,
+            hoveredSlot: null,
+            hoveredBranchArrow: null,
+            branchChoiceArrows: [],
+            branchChoiceResolver: null,
+            mapStep: 3,
+            mapBounds: null,
+            roadTileColor: 0x7bed9f,
+            roadHoverColor: 0x2ed573,
+            slotTileColor: 0xdfe4ea,
+            slotHoverColor: 0xfeca57,
+            branchArrowColor: 0x1e90ff,
+            branchArrowHoverColor: 0xfff3bf,
 
             transitionTo(nextState, reason = '') {
                 if (this.state === nextState) return;
@@ -569,43 +582,59 @@
 
             buildMap() {
                 // 构建规则正交网格：主干道是大回环，岔路只沿上下左右行走并最终回接。
+                const mainLoopCoords = [
+                    [-15,-9], [-12,-9], [-9,-9], [-6,-9], [-3,-9], [0,-9], [3,-9], [6,-9], [9,-9], [12,-9], [15,-9],
+                    [15,-6], [15,-3], [15,0], [15,3], [15,6], [15,9],
+                    [12,9], [9,9], [6,9], [3,9], [0,9], [-3,9], [-6,9], [-9,9], [-12,9], [-15,9],
+                    [-15,6], [-15,3], [-15,0], [-15,-3], [-15,-6]
+                ];
+                this.mapBounds = {
+                    minX: Math.min(...mainLoopCoords.map(([x]) => x)),
+                    maxX: Math.max(...mainLoopCoords.map(([x]) => x)),
+                    minZ: Math.min(...mainLoopCoords.map(([, z]) => z)),
+                    maxZ: Math.max(...mainLoopCoords.map(([, z]) => z))
+                };
+
                 const nodeDefs = [
-                    ...[
-                        [-8,-4], [-6,-4], [-4,-4], [-2,-4], [0,-4], [2,-4], [4,-4], [6,-4], [8,-4],
-                        [8,-2], [8,0], [8,2], [8,4], [8,6],
-                        [6,6], [4,6], [2,6], [0,6], [-2,6], [-4,6], [-6,6], [-8,6],
-                        [-8,4], [-8,2], [-8,0], [-8,-2]
-                    ].map(([x, z], i, arr) => ({
+                    ...mainLoopCoords.map(([x, z], i, arr) => ({
                         id: i,
                         x,
                         z,
                         next: (i + 1) % arr.length,
                         branches: []
                     })),
-                    { id: 26, x: 0, z: -2, next: 27 },
-                    { id: 27, x: 0, z: 0, next: 28 },
-                    { id: 28, x: 0, z: 2, next: 29 },
-                    { id: 29, x: 2, z: 2, next: 30 },
-                    { id: 30, x: 4, z: 2, next: 31 },
-                    { id: 31, x: 6, z: 2, next: 11 },
-                    { id: 32, x: 6, z: -2, next: 33 },
-                    { id: 33, x: 4, z: -2, next: 34 },
-                    { id: 34, x: 2, z: -2, next: 26 },
-                    { id: 35, x: -2, z: 4, next: 36 },
-                    { id: 36, x: -2, z: 2, next: 37 },
-                    { id: 37, x: -2, z: 0, next: 38 },
-                    { id: 38, x: -4, z: 0, next: 39 },
-                    { id: 39, x: -6, z: 0, next: 24 },
-                    { id: 40, x: -10, z: 0, next: 24, npc: 'WIZARD', deadEnd: true }
+                    { id: 32, x: 0, z: -6, next: 33 },
+                    { id: 33, x: 0, z: -3, next: 34 },
+                    { id: 34, x: 3, z: -3, next: 35 },
+                    { id: 35, x: 6, z: -3, next: 36 },
+                    { id: 36, x: 9, z: -3, next: 37 },
+                    { id: 37, x: 12, z: -3, next: 12 },
+                    { id: 38, x: 12, z: 3, next: 14 },
+                    { id: 39, x: 9, z: 3, next: 38 },
+                    { id: 40, x: 6, z: 3, next: 39 },
+                    { id: 41, x: 3, z: 3, next: 40 },
+                    { id: 42, x: 0, z: 3, next: 41 },
+                    { id: 43, x: 0, z: 6, next: 42 },
+                    { id: 44, x: -3, z: 3, next: 42 },
+                    { id: 45, x: -6, z: 3, next: 44 },
+                    { id: 46, x: -9, z: 3, next: 45 },
+                    { id: 47, x: -12, z: 3, next: 46 },
+                    { id: 48, x: -12, z: 0, next: 49 },
+                    { id: 49, x: -9, z: 0, next: 50 },
+                    { id: 50, x: -6, z: 0, next: 51 },
+                    { id: 51, x: -3, z: 0, next: 52 },
+                    { id: 52, x: 0, z: 0, next: 33 },
+                    { id: 53, x: -18, z: 0, next: 29, npc: 'WIZARD', deadEnd: true }
                 ];
-                nodeDefs[4].branches = [26];
-                nodeDefs[9].branches = [32];
-                nodeDefs[18].branches = [35];
-                nodeDefs[24].branches = [40];
+                nodeDefs[5].branches = [32];
+                nodeDefs[14].branches = [38];
+                nodeDefs[21].branches = [43];
+                nodeDefs[28].branches = [47];
+                nodeDefs[29].branches = [48, 53];
 
                 nodeDefs.forEach((def, i) => {
                     const { x, z } = def;
-                    const nodeMesh = this.createToonBox(1.8, 0.5, 1.8, 0x7bed9f);
+                    const nodeMesh = this.createToonBox(1.8, 0.5, 1.8, this.roadTileColor);
                     nodeMesh.userData.baseY = 0;
                     nodeMesh.userData.floatingTile = true;
                     nodeMesh.position.set(x, -8, z);
@@ -634,20 +663,37 @@
             },
 
             createAdjacentSlotsForNode(node) {
-                const spacing = 2;
+                const spacing = this.mapStep;
                 const roadPositions = new Set(this.nodes.map(n => `${n.x},${n.z}`));
                 const directions = [
-                    { dx: 0, dz: -spacing },
-                    { dx: spacing, dz: 0 },
-                    { dx: 0, dz: spacing },
-                    { dx: -spacing, dz: 0 }
+                    { dx: 0, dz: -spacing, edge: 'south' },
+                    { dx: spacing, dz: 0, edge: 'east' },
+                    { dx: 0, dz: spacing, edge: 'north' },
+                    { dx: -spacing, dz: 0, edge: 'west' }
                 ];
 
-                directions.forEach(({ dx, dz }) => {
-                    const x = node.x + dx;
-                    const z = node.z + dz;
-                    if (!roadPositions.has(`${x},${z}`)) this.createSlot(node, x, z);
-                });
+                const available = directions.filter(({ dx, dz }) => !roadPositions.has(`${node.x + dx},${node.z + dz}`));
+                const createFromDirection = ({ dx, dz }) => this.createSlot(node, node.x + dx, node.z + dz);
+
+                if (node.id < 32 && this.mapBounds) {
+                    const outward = [];
+                    if (node.z === this.mapBounds.minZ) outward.push(...available.filter(dir => dir.edge === 'south'));
+                    if (node.z === this.mapBounds.maxZ) outward.push(...available.filter(dir => dir.edge === 'north'));
+                    if (node.x === this.mapBounds.minX) outward.push(...available.filter(dir => dir.edge === 'west'));
+                    if (node.x === this.mapBounds.maxX) outward.push(...available.filter(dir => dir.edge === 'east'));
+                    (outward.length > 0 ? outward : available.slice(0, 1)).forEach(createFromDirection);
+                    return;
+                }
+
+                if (node.npc === 'WIZARD') {
+                    available.forEach(createFromDirection);
+                    return;
+                }
+
+                if (available.length > 0) {
+                    const index = Math.abs(node.id + node.x * 3 + node.z) % available.length;
+                    createFromDirection(available[index]);
+                }
             },
 
             createWizardMarker(node) {
@@ -901,10 +947,10 @@
                     .start();
             },
 
-            async chooseNextNodeIndex(node, player) {
+            async chooseNextNodeIndex(node, player, allowPlayerChoice = true) {
                 const options = node.nextOptions || [{ target: node.next, weight: 1 }];
                 if (options.length === 1) return options[0].target;
-                if (player.isPlayer) return await this.waitForBranchChoice(node, options);
+                if (player.isPlayer && allowPlayerChoice) return await this.waitForBranchChoice(node, options);
 
                 const choice = options[Math.floor(Math.random() * options.length)];
                 if (choice.target !== node.next) {
@@ -917,27 +963,84 @@
                 const menu = document.getElementById('branch-menu');
                 const optionBox = document.getElementById('branch-options');
                 this.transitionTo(TurnState.BRANCH_CHOICE);
+                menu.style.display = 'none';
                 optionBox.innerHTML = '';
-                menu.style.display = 'block';
+                this.showBranchChoiceArrows(node, options);
+                this.log("来到岔路口，请点击路块上的箭头选择方向。");
 
                 return new Promise(resolve => {
-                    options.forEach(option => {
-                        const target = this.nodes[option.target];
-                        const btn = document.createElement('button');
-                        btn.className = 'branch-btn';
-                        btn.innerText = this.getBranchDirectionLabel(node, target, option.label);
-                        btn.onclick = () => {
-                            menu.style.display = 'none';
-                            optionBox.innerHTML = '';
-                            if (option.target !== node.next) {
-                                this.log(`${this.players[this.currentPlayerIndex].name} 选择了岔路。`);
-                            }
-                            this.transitionTo(TurnState.MOVING);
-                            resolve(option.target);
-                        };
-                        optionBox.appendChild(btn);
-                    });
+                    this.branchChoiceResolver = (option) => {
+                        this.clearBranchChoiceArrows();
+                        if (option.target !== node.next) {
+                            this.log(`${this.players[this.currentPlayerIndex].name} 选择了岔路。`);
+                        }
+                        this.transitionTo(TurnState.MOVING);
+                        resolve(option.target);
+                    };
                 });
+            },
+
+            showBranchChoiceArrows(node, options) {
+                this.clearBranchChoiceArrows();
+                options.forEach(option => {
+                    const target = this.nodes[option.target];
+                    const arrow = this.createBranchChoiceArrow(node, target, option);
+                    this.branchChoiceArrows.push(arrow);
+                });
+            },
+
+            createBranchChoiceArrow(node, target, option) {
+                const dx = Math.sign(target.x - node.x);
+                const dz = Math.sign(target.z - node.z);
+                const group = new THREE.Group();
+                group.position.set(0, 0.34, 0);
+                group.rotation.y = Math.atan2(-dx, -dz);
+
+                const mat = new THREE.MeshToonMaterial({ color: this.branchArrowColor });
+                const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.72), mat);
+                shaft.position.z = -0.14;
+                const head = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.52, 3), mat);
+                head.rotation.x = -Math.PI / 2;
+                head.position.z = -0.62;
+                const hit = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.82, 0.18, 1.22),
+                    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+                );
+                hit.position.set(0, 0.03, -0.34);
+
+                group.add(shaft, head, hit);
+                node.mesh.add(group);
+
+                const arrow = {
+                    node,
+                    target,
+                    option,
+                    group,
+                    material: mat,
+                    meshes: [shaft, head, hit]
+                };
+                group.userData.branchArrow = arrow;
+                arrow.meshes.forEach(mesh => {
+                    mesh.userData.branchArrow = arrow;
+                    mesh.userData.clickableBranchArrow = true;
+                });
+                return arrow;
+            },
+
+            clearBranchChoiceArrows() {
+                this.setHoveredBranchArrow(null);
+                this.branchChoiceArrows.forEach(arrow => {
+                    if (arrow.group.parent) arrow.group.parent.remove(arrow.group);
+                });
+                this.branchChoiceArrows = [];
+                this.branchChoiceResolver = null;
+            },
+
+            selectBranchArrow(arrow) {
+                if (!arrow || !this.branchChoiceResolver) return;
+                const resolver = this.branchChoiceResolver;
+                this.branchChoiceResolver = null;
+                resolver(arrow.option);
             },
 
             getBranchDirectionLabel(fromNode, targetNode, fallback = '道路') {
@@ -1106,6 +1209,90 @@
                 slot.guardMarkerGroup = null;
             },
 
+            setRayFromPointer(e) {
+                this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                this.raycaster.setFromCamera(this.mouse, this.camera);
+            },
+
+            getSlotDisplayColor(slot) {
+                if (this.state === TurnState.ACTION_SELECT && this.activeNode?.slots.includes(slot)) return 0xffffff;
+                return this.slotTileColor;
+            },
+
+            pickBranchArrow() {
+                const meshes = this.branchChoiceArrows.flatMap(arrow => arrow.meshes);
+                const intersects = this.raycaster.intersectObjects(meshes, false);
+                return intersects.length > 0 ? intersects[0].object.userData.branchArrow : null;
+            },
+
+            pickSlot() {
+                const intersects = this.raycaster.intersectObjects(this.slots.map(s => s.mesh), false);
+                if (intersects.length === 0) return null;
+                return this.slots.find(s => s.mesh === intersects[0].object) || null;
+            },
+
+            pickNode() {
+                const intersects = this.raycaster.intersectObjects(this.nodes.map(n => n.mesh), false);
+                if (intersects.length === 0) return null;
+                return this.nodes.find(n => n.mesh === intersects[0].object) || null;
+            },
+
+            setHoveredBranchArrow(arrow) {
+                if (this.hoveredBranchArrow === arrow) return;
+                if (this.hoveredBranchArrow) {
+                    this.hoveredBranchArrow.material.color.setHex(this.branchArrowColor);
+                }
+                this.hoveredBranchArrow = arrow;
+                if (this.hoveredBranchArrow) {
+                    this.hoveredBranchArrow.material.color.setHex(this.branchArrowHoverColor);
+                }
+            },
+
+            setHoveredSlot(slot) {
+                if (this.hoveredSlot === slot) return;
+                if (this.hoveredSlot) {
+                    this.hoveredSlot.mesh.material.color.setHex(this.getSlotDisplayColor(this.hoveredSlot));
+                }
+                this.hoveredSlot = slot;
+                if (this.hoveredSlot) {
+                    this.hoveredSlot.mesh.material.color.setHex(this.slotHoverColor);
+                }
+            },
+
+            setHoveredNode(node) {
+                if (this.hoveredNode === node) return;
+                if (this.hoveredNode) {
+                    this.hoveredNode.mesh.material.color.setHex(this.roadTileColor);
+                }
+                this.hoveredNode = node;
+                if (this.hoveredNode) {
+                    this.hoveredNode.mesh.material.color.setHex(this.roadHoverColor);
+                }
+            },
+
+            clearHoverState() {
+                this.setHoveredBranchArrow(null);
+                this.setHoveredSlot(null);
+                this.setHoveredNode(null);
+                document.getElementById('game-canvas').style.cursor = 'default';
+            },
+
+            updatePointerHover(e) {
+                if (this.isDragging) return;
+                this.setRayFromPointer(e);
+
+                const branchArrow = this.state === TurnState.BRANCH_CHOICE ? this.pickBranchArrow() : null;
+                this.setHoveredBranchArrow(branchArrow);
+                const slot = this.pickSlot();
+                const node = this.pickNode();
+                this.setHoveredSlot(slot);
+                this.setHoveredNode(node);
+
+                const canvas = document.getElementById('game-canvas');
+                canvas.style.cursor = branchArrow || slot || node ? 'pointer' : 'default';
+            },
+
             initEvents() {
                 const canvas = document.getElementById('game-canvas');
                 document.getElementById('btn-roll').addEventListener('click', () => this.rollDice());
@@ -1128,6 +1315,7 @@
                         if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
                             this.isDragging = true;
                             this.setCameraMode(CameraMode.DRAGGING);
+                            this.clearHoverState();
                         }
                         
                         // 等距视角下拖拽映射（简易版）
@@ -1135,15 +1323,21 @@
                         this.cameraOffset.z -= (dy - dx) * 0.02;
                         
                         this.dragStartPos = { x: e.clientX, y: e.clientY };
+                    } else {
+                        this.updatePointerHover(e);
                     }
                 });
 
                 canvas.addEventListener('pointerup', (e) => {
-                    if (!this.isDragging && this.state === TurnState.ACTION_SELECT) {
+                    if (!this.isDragging && this.state === TurnState.BRANCH_CHOICE) {
+                        this.setRayFromPointer(e);
+                        const arrow = this.pickBranchArrow();
+                        if (arrow) {
+                            this.selectBranchArrow(arrow);
+                        }
+                    } else if (!this.isDragging && this.state === TurnState.ACTION_SELECT) {
                         // 处理点击射线检测
-                        this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-                        this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-                        this.raycaster.setFromCamera(this.mouse, this.camera);
+                        this.setRayFromPointer(e);
 
                         const intersects = this.raycaster.intersectObjects(this.slots.map(s => s.mesh));
                         if (intersects.length > 0) {
@@ -1157,6 +1351,7 @@
                     }
                     this.isDragging = false;
                 });
+                canvas.addEventListener('pointerleave', () => this.clearHoverState());
             },
 
             log(msg) {
@@ -1262,7 +1457,7 @@
             },
 
             // 角色单步跳跃递归
-            async moveCharacter(player, stepsLeft) {
+            async moveCharacter(player, stepsLeft, hasMovedThisRoll = false) {
                 if (stepsLeft <= 0) {
                     this.reflowNodeOccupants(player.nodeIndex, true);
                     await this.handleLanding(player);
@@ -1271,7 +1466,7 @@
 
                 const currNode = this.nodes[player.nodeIndex];
                 const oldNodeIndex = player.nodeIndex;
-                const nextNodeIndex = await this.chooseNextNodeIndex(currNode, player);
+                const nextNodeIndex = await this.chooseNextNodeIndex(currNode, player, hasMovedThisRoll);
                 const nextNode = this.nodes[nextNodeIndex];
                 player.nodeIndex = nextNodeIndex;
                 const nextOccupants = this.getPlayersOnNode(nextNodeIndex);
@@ -1306,7 +1501,7 @@
                             .onComplete(() => {
                                 new TWEEN.Tween(body.scale).to({ x: 1, y: 1, z: 1 }, 100).start();
                                 // 继续下一步
-                                setTimeout(() => this.moveCharacter(player, stepsLeft - 1), 50);
+                                setTimeout(() => this.moveCharacter(player, stepsLeft - 1, true), 50);
                             }).start();
                         })
                         .start();
@@ -2449,6 +2644,8 @@
 
             endTurn() {
                 this.stopSlotHighlightOnly();
+                this.clearBranchChoiceArrows();
+                this.clearHoverState();
                 this.setActionConsumed(false);
                 document.getElementById('build-menu').style.display = 'none';
                 document.getElementById('branch-menu').style.display = 'none';
