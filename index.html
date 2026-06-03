@@ -995,10 +995,11 @@
                     .to({ x: Math.PI*5, y: Math.PI*6, z: Math.PI*4 }, 950)
                     .easing(TWEEN.Easing.Cubic.Out)
                     .onComplete(() => {
-                        // 强制朝上面为骰出点数 (简易处理，直接设置最终面朝上)
-                        let targetRot = {x:0, y:0, z:0};
-                        if(result===1) targetRot = {x:0, y:Math.PI/2, z:0};
-                        dice.rotation.set(targetRot.x, targetRot.y, targetRot.z);
+                        // BoxGeometry material index 2 is the top face; repaint it to the final roll.
+                        dice.material[2].map = createDiceTexture(result);
+                        dice.material[2].map.needsUpdate = true;
+                        dice.material[2].needsUpdate = true;
+                        dice.rotation.set(0, 0, 0);
                         
                         setTimeout(() => {
                             this.scene.remove(dice);
