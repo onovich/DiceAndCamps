@@ -93,7 +93,10 @@
         .build-btn.trap { background: #a55eea; color: white; }
         .build-btn.guard { background: #ff4757; color: white; }
         .build-btn.income { background: #eccc68; color: #333; }
+        .build-btn.upgrade { background: #2ed573; color: #063b1f; }
+        .build-btn.demolish { background: #57606f; color: white; }
         .build-btn.cancel { background: #ced6e0; color: #333; }
+        .build-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
         #msg-log {
             position: absolute;
@@ -143,9 +146,11 @@
             <h3 style="margin-top:0;">建造地块操作</h3>
             <p id="build-desc">选择要建造的设施：</p>
             <div class="build-options">
-                <button class="build-btn trap" onclick="Game.buildFacility('TRAP')">陷阱 (50G)</button>
-                <button class="build-btn guard" onclick="Game.buildFacility('GUARD')">守卫 (80G)</button>
-                <button class="build-btn income" onclick="Game.buildFacility('INCOME')">金矿 (100G)</button>
+                <button id="btn-build-trap" class="build-btn trap" onclick="Game.buildFacility('TRAP')">陷阱 (50G)</button>
+                <button id="btn-build-guard" class="build-btn guard" onclick="Game.buildFacility('GUARD')">守卫 (80G)</button>
+                <button id="btn-build-income" class="build-btn income" onclick="Game.buildFacility('INCOME')">金矿 (100G)</button>
+                <button id="btn-upgrade-facility" class="build-btn upgrade" onclick="Game.upgradeSelectedFacility()">升级</button>
+                <button id="btn-demolish-facility" class="build-btn demolish" onclick="Game.demolishSelectedFacility()">拆毁</button>
                 <button class="build-btn cancel" onclick="Game.closeBuildMenu()">返回选择</button>
             </div>
         </div>
@@ -221,6 +226,13 @@
             cameraMode: CameraMode.FOLLOW,
             cameraReturnTween: null,
             slotHighlightTweens: [],
+            actionConsumedThisTurn: false,
+            maxFacilityLevel: 3,
+            facilityConfigs: {
+                TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10 },
+                GUARD: { name: '守卫哨站', cost: 80, color: 0xff4757, maxLevel: 3, baseDefense: 18 },
+                INCOME: { name: '金矿', cost: 100, color: 0xeccc68, maxLevel: 3, baseDefense: 14 }
+            },
             cameraOffset: new THREE.Vector3(0, 0, 0),
             cameraTarget: new THREE.Vector3(0, 0, 0),
             dragStartPos: {x:0, y:0},
@@ -368,7 +380,13 @@
                 const slot = {
                     node: node, x: x, z: z, mesh: slotMesh,
                     type: 'EMPTY', // EMPTY, TRAP, GUARD, INCOME
-                    level: 1, owner: null, facilityMesh: null
+                    level: 0,
+                    maxLevel: this.maxFacilityLevel,
+                    owner: null,
+                    facilityMesh: null,
+                    defense: 0,
+                    guardSlots: 0,
+                    guards: []
                 };
                 node.slots.push(slot);
                 this.slots.push(slot);
@@ -485,6 +503,74 @@
                         child.material.opacity = opacity;
                     });
                 });
+            },
+
+            getFacilityConfig(type) {
+                return this.facilityConfigs[type] || this.facilityConfigs.TRAP;
+            },
+
+            getFacilityName(slotOrType) {
+                const type = typeof slotOrType === 'string' ? slotOrType : slotOrType.type;
+                return this.getFacilityConfig(type).name;
+            },
+
+            getUpgradeCost(slot) {
+                return 50 + slot.level * 35;
+            },
+
+            isFacilityMaxLevel(slot) {
+                return slot.type !== 'EMPTY' && slot.level >= slot.maxLevel;
+            },
+
+            setActionConsumed(consumed) {
+                this.actionConsumedThisTurn = consumed;
+            },
+
+            finishAction(consumesTurn = true) {
+                if (consumesTurn) {
+                    this.setActionConsumed(true);
+                    this.endTurn();
+                } else {
+                    this.setActionConsumed(false);
+                    this.closeBuildMenu();
+                }
+            },
+
+            setBuildMenuButtons(mode) {
+                const buildIds = ['btn-build-trap', 'btn-build-guard', 'btn-build-income'];
+                document.querySelector('.build-options').style.display = 'flex';
+                buildIds.forEach(id => {
+                    const btn = document.getElementById(id);
+                    btn.style.display = mode === 'build' ? 'inline-block' : 'none';
+                    btn.disabled = false;
+                });
+                const upgradeBtn = document.getElementById('btn-upgrade-facility');
+                const demolishBtn = document.getElementById('btn-demolish-facility');
+                upgradeBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
+                demolishBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
+                upgradeBtn.disabled = false;
+                demolishBtn.disabled = false;
+            },
+
+            updateFacilityVisual(slot) {
+                if (!slot.facilityMesh) return;
+                const scale = 1 + (slot.level - 1) * 0.18;
+                slot.facilityMesh.scale.set(scale, scale, scale);
+                slot.facilityMesh.position.y = 0.6 + (slot.level - 1) * 0.08;
+            },
+
+            clearFacility(slot) {
+                if (slot.facilityMesh) {
+                    this.scene.remove(slot.facilityMesh);
+                }
+                slot.type = 'EMPTY';
+                slot.level = 0;
+                slot.maxLevel = this.maxFacilityLevel;
+                slot.owner = null;
+                slot.facilityMesh = null;
+                slot.defense = 0;
+                slot.guardSlots = 0;
+                slot.guards = [];
             },
 
             initEvents() {
@@ -845,6 +931,7 @@
 
             enterBuildPhase(player) {
                 this.transitionTo(TurnState.ACTION_SELECT);
+                this.setActionConsumed(false);
                 const slots = this.activeNode.slots;
 
                 // 阶段一：地块高亮跳动
@@ -873,16 +960,6 @@
                 }
             },
 
-            stopSlotHighlight() {
-                this.stopSlotHighlightOnly();
-                return;
-                TWEEN.removeAll(); // 停止所有动画
-                this.activeNode.slots.forEach(s => {
-                    s.mesh.position.y = 0.05;
-                    s.mesh.material.color.setHex(0xdfe4ea); // 恢复颜色
-                });
-            },
-
             stopSlotHighlightOnly() {
                 this.slotHighlightTweens.forEach(tween => tween.stop());
                 this.slotHighlightTweens = [];
@@ -904,16 +981,22 @@
                 
                 // 阶段二：弹出菜单
                 if (slot.type === 'EMPTY') {
-                    document.getElementById('build-desc').innerText = "选择要建造的设施：";
-                    document.querySelector('.build-options').style.display = 'flex';
+                    this.setBuildMenuButtons('build');
+                    document.getElementById('build-desc').innerText = "选择要建造的设施。建造会消耗当前行动。";
                 } else if (slot.owner === player) {
-                    document.getElementById('build-desc').innerText = "这是你的设施。是否花费 50G 升级？";
-                    // 这里可以实现升级逻辑，暂略，直接提示
-                    document.querySelector('.build-options').style.display = 'none';
-                    this.log("功能扩展预留：建筑升级");
+                    this.setBuildMenuButtons('owned');
+                    const upgradeBtn = document.getElementById('btn-upgrade-facility');
+                    const demolishBtn = document.getElementById('btn-demolish-facility');
+                    const maxed = this.isFacilityMaxLevel(slot);
+                    upgradeBtn.disabled = maxed || player.gold < this.getUpgradeCost(slot);
+                    upgradeBtn.innerText = maxed ? "已满级" : `升级 (${this.getUpgradeCost(slot)}G)`;
+                    demolishBtn.disabled = false;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}。升级会消耗当前行动，拆毁不会消耗行动。`;
+                    document.querySelector('.build-options').style.display = 'flex';
                 } else {
-                    document.getElementById('build-desc').innerText = "这是敌方的设施，无法操作！";
-                    document.querySelector('.build-options').style.display = 'none';
+                    this.setBuildMenuButtons('none');
+                    document.getElementById('build-desc').innerText = "这是敌方设施。挑战守军和墙壁的行动会在战斗系统中接入。";
+                    document.querySelector('.build-options').style.display = 'flex';
                 }
                 
                 document.getElementById('build-menu').style.display = 'block';
@@ -925,22 +1008,80 @@
                 this.enterBuildPhase(this.players[this.currentPlayerIndex]); // 返回阶段一重新选
             },
 
-            buildFacility(type) {
-                const costs = { 'TRAP': 50, 'GUARD': 80, 'INCOME': 100 };
+            upgradeSelectedFacility() {
                 const player = this.players[this.currentPlayerIndex];
-                const cost = costs[type];
+                const slot = this.selectedSlot;
+                if (!slot || slot.owner !== player || slot.type === 'EMPTY') {
+                    this.log("只能升级自己的建筑。");
+                    return;
+                }
+
+                if (this.isFacilityMaxLevel(slot)) {
+                    this.log(`${this.getFacilityName(slot)} 已经满级，不能继续升级。`);
+                    return;
+                }
+
+                const cost = this.getUpgradeCost(slot);
+                if (player.gold < cost) {
+                    this.log(`金币不足，升级需要 ${cost}G。`);
+                    return;
+                }
+
+                player.gold -= cost;
+                slot.level += 1;
+                slot.defense += 12 + slot.level * 4;
+                if (slot.type !== 'TRAP') slot.guardSlots = Math.max(slot.guardSlots, slot.level);
+                this.updateFacilityVisual(slot);
+                this.createFloatingText(`Lv.${slot.level}`, slot.mesh.position, "#2ed573");
+                this.log(`花费 ${cost}G 将 ${this.getFacilityName(slot)} 升到 Lv.${slot.level}。`);
+                document.getElementById('build-menu').style.display = 'none';
+                this.updateUI();
+                this.finishAction(true);
+            },
+
+            demolishSelectedFacility() {
+                const player = this.players[this.currentPlayerIndex];
+                const slot = this.selectedSlot;
+                if (!slot || slot.owner !== player || slot.type === 'EMPTY') {
+                    this.log("只能拆毁自己的建筑。");
+                    return;
+                }
+
+                const name = this.getFacilityName(slot);
+                this.clearFacility(slot);
+                this.createFloatingText("拆毁", slot.mesh.position, "#ced6e0");
+                this.log(`拆毁了自己的 ${name}。拆毁不消耗行动。`);
+                document.getElementById('build-menu').style.display = 'none';
+                this.updateUI();
+                this.finishAction(false);
+            },
+
+            buildFacility(type) {
+                const config = this.getFacilityConfig(type);
+                const player = this.players[this.currentPlayerIndex];
+                const cost = config.cost;
+                const slot = this.selectedSlot;
+
+                if (!slot || slot.type !== 'EMPTY') {
+                    this.log("只能在空地上建造。");
+                    return;
+                }
 
                 if (player.gold >= cost) {
                     player.gold -= cost;
-                    const slot = this.selectedSlot;
                     slot.type = type;
                     slot.owner = player;
+                    slot.level = 1;
+                    slot.maxLevel = config.maxLevel || this.maxFacilityLevel;
+                    slot.defense = config.baseDefense;
+                    slot.guardSlots = type === 'TRAP' ? 0 : 1;
+                    slot.guards = [];
                     
                     // 在地块上生成 3D 建筑模型
                     let fColor = 0xffffff, geom = null;
-                    if(type === 'TRAP') { fColor = 0xa55eea; geom = new THREE.CylinderGeometry(0.5, 0.8, 0.5, 8); }
-                    if(type === 'GUARD') { fColor = 0xff4757; geom = new THREE.BoxGeometry(0.8, 1.2, 0.8); }
-                    if(type === 'INCOME') { fColor = 0xeccc68; geom = new THREE.OctahedronGeometry(0.6); }
+                    if(type === 'TRAP') { fColor = config.color; geom = new THREE.CylinderGeometry(0.5, 0.8, 0.5, 8); }
+                    if(type === 'GUARD') { fColor = config.color; geom = new THREE.BoxGeometry(0.8, 1.2, 0.8); }
+                    if(type === 'INCOME') { fColor = config.color; geom = new THREE.OctahedronGeometry(0.6); }
 
                     const mesh = new THREE.Mesh(geom, new THREE.MeshToonMaterial({color: fColor}));
                     
@@ -952,22 +1093,25 @@
                     mesh.position.set(slot.x, 0.6, slot.z);
                     this.scene.add(mesh);
                     slot.facilityMesh = mesh;
+                    this.updateFacilityVisual(slot);
 
-                    this.log(`花费 ${cost}G 建造了 ${type}！`);
+                    this.log(`花费 ${cost}G 建造了 ${this.getFacilityName(type)}！`);
                     
                     // 特效：小跳一下
                     new TWEEN.Tween(mesh.position).to({y: 1.5}, 200).yoyo(true).repeat(1).start();
                 } else {
-                    this.log("金币不足！");
+                    this.log("金币不足，无法建造。");
+                    return;
                 }
                 
                 document.getElementById('build-menu').style.display = 'none';
                 this.updateUI();
-                this.endTurn();
+                this.finishAction(true);
             },
 
             endTurn() {
                 this.stopSlotHighlightOnly();
+                this.setActionConsumed(false);
                 document.getElementById('build-menu').style.display = 'none';
                 document.getElementById('btn-end').style.display = 'none';
                 
