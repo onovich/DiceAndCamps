@@ -184,13 +184,43 @@
         }
 
         // ------------------ 游戏核心逻辑 ------------------
+        const TurnState = Object.freeze({
+            IDLE: 'IDLE',
+            DICE: 'DICE',
+            MOVING: 'MOVING',
+            OWNED_EVENTS: 'OWNED_EVENTS',
+            ENEMY_EVENTS: 'ENEMY_EVENTS',
+            ACTION_SELECT: 'ACTION_SELECT',
+            ACTION_MENU: 'ACTION_MENU',
+            BATTLE: 'BATTLE',
+            ENDING: 'ENDING'
+        });
+
+        const DicePhase = Object.freeze({
+            READY: 'READY',
+            LAUNCH: 'LAUNCH',
+            ROLL: 'ROLL',
+            SETTLE: 'SETTLE',
+            DONE: 'DONE'
+        });
+
+        const CameraMode = Object.freeze({
+            FOLLOW: 'FOLLOW',
+            DRAGGING: 'DRAGGING',
+            RETURNING: 'RETURNING'
+        });
+
         const Game = {
             scene: null, camera: null, renderer: null,
             players: [],
             nodes: [], // 主路
             slots: [], // 副地块
             currentPlayerIndex: 0,
-            state: 'IDLE', // IDLE, MOVING, EVENT, BUILD
+            state: TurnState.IDLE, // explicit turn/action state machine
+            dicePhase: DicePhase.READY,
+            cameraMode: CameraMode.FOLLOW,
+            cameraReturnTween: null,
+            slotHighlightTweens: [],
             cameraOffset: new THREE.Vector3(0, 0, 0),
             cameraTarget: new THREE.Vector3(0, 0, 0),
             dragStartPos: {x:0, y:0},
@@ -199,6 +229,34 @@
             mouse: new THREE.Vector2(),
             activeNode: null, // 当前停留的节点
             selectedSlot: null, // 当前选中的副地块
+
+            transitionTo(nextState, reason = '') {
+                if (this.state === nextState) return;
+                this.state = nextState;
+                if (reason) this.log(`[${nextState}] ${reason}`);
+                this.updateUI();
+            },
+
+            setDicePhase(nextPhase) {
+                this.dicePhase = nextPhase;
+            },
+
+            setCameraMode(nextMode) {
+                this.cameraMode = nextMode;
+            },
+
+            returnCameraToFollow() {
+                if (this.cameraReturnTween) this.cameraReturnTween.stop();
+                this.setCameraMode(CameraMode.RETURNING);
+                this.cameraReturnTween = new TWEEN.Tween(this.cameraOffset)
+                    .to({ x: 0, y: 0, z: 0 }, 650)
+                    .easing(TWEEN.Easing.Elastic.Out)
+                    .onComplete(() => {
+                        this.cameraReturnTween = null;
+                        this.setCameraMode(CameraMode.FOLLOW);
+                    })
+                    .start();
+            },
 
             init() {
                 this.initEngine();
@@ -323,16 +381,16 @@
                 for (let i = 0; i < 4; i++) {
                     // 角色模型：球体 + 挤压变形组
                     const group = new THREE.Group();
-                    const geom = new THREE.SphereGeometry(0.6, 16, 16);
+                    const geom = new THREE.SphereGeometry(0.38, 16, 16);
                     const mat = new THREE.MeshToonMaterial({ color: colors[i] });
                     const mesh = new THREE.Mesh(geom, mat);
-                    mesh.position.y = 0.6;
+                    mesh.position.y = 0.45;
                     mesh.castShadow = true;
 
                     // 背面膨胀描边法 (BackSide Outline)
                     const outlineMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
                     const outlineMesh = new THREE.Mesh(geom, outlineMat);
-                    outlineMesh.scale.set(1.15, 1.15, 1.15);
+                    outlineMesh.scale.set(1.12, 1.12, 1.12);
                     mesh.add(outlineMesh);
 
                     group.add(mesh);
@@ -346,6 +404,87 @@
                         hp: 50, maxHp: 50, atk: 10, gold: 200, exp: 0, level: 1
                     });
                 }
+                this.reflowAllCharacterStances(false);
+            },
+
+            getPlayersOnNode(nodeIndex) {
+                return this.players
+                    .filter(player => player.nodeIndex === nodeIndex)
+                    .sort((a, b) => a.id - b.id);
+            },
+
+            getNodeStandPosition(nodeIndex, player, occupants = null) {
+                const node = this.nodes[nodeIndex];
+                const group = occupants || this.getPlayersOnNode(nodeIndex);
+                const count = Math.max(1, group.length);
+                const index = Math.max(0, group.findIndex(p => p.id === player.id));
+
+                if (count === 1) {
+                    return new THREE.Vector3(node.x, 0.25, node.z);
+                }
+
+                const radius = Math.min(0.62, 0.34 + count * 0.08);
+                const angle = -Math.PI / 2 + (Math.PI * 2 * index / count);
+                return new THREE.Vector3(
+                    node.x + Math.cos(angle) * radius,
+                    0.25,
+                    node.z + Math.sin(angle) * radius
+                );
+            },
+
+            reflowNodeOccupants(nodeIndex, animated = true, excludePlayer = null) {
+                const occupants = this.getPlayersOnNode(nodeIndex);
+                occupants.forEach(player => {
+                    if (excludePlayer && player.id === excludePlayer.id) return;
+                    const target = this.getNodeStandPosition(nodeIndex, player, occupants);
+                    if (animated) {
+                        new TWEEN.Tween(player.meshGroup.position)
+                            .to({ x: target.x, y: target.y, z: target.z }, 360)
+                            .easing(TWEEN.Easing.Back.Out)
+                            .start();
+                    } else {
+                        player.meshGroup.position.copy(target);
+                    }
+                });
+            },
+
+            reflowAllCharacterStances(animated = true) {
+                this.nodes.forEach(node => this.reflowNodeOccupants(node.id, animated));
+            },
+
+            bounceNode(node) {
+                if (!node || !node.mesh) return;
+                new TWEEN.Tween(node.mesh.position)
+                    .to({ y: -0.18 }, 90)
+                    .easing(TWEEN.Easing.Quadratic.In)
+                    .onComplete(() => {
+                        new TWEEN.Tween(node.mesh.position)
+                            .to({ y: 0 }, 420)
+                            .easing(TWEEN.Easing.Elastic.Out)
+                            .start();
+                    })
+                    .start();
+            },
+
+            getOrderedLandingEventSlots(slots, player) {
+                const priority = (slot) => {
+                    if (slot.owner === player) return 0;
+                    if (slot.owner && slot.owner !== player) return 1;
+                    return 2;
+                };
+                return [...slots].sort((a, b) => priority(a) - priority(b));
+            },
+
+            setNodeFacilityOpacity(node, opacity) {
+                if (!node) return;
+                node.slots.forEach(slot => {
+                    if (!slot.facilityMesh) return;
+                    slot.facilityMesh.traverse(child => {
+                        if (!child.material) return;
+                        child.material.transparent = opacity < 1;
+                        child.material.opacity = opacity;
+                    });
+                });
             },
 
             initEvents() {
@@ -356,6 +495,10 @@
                 // 触控/鼠标事件用于拖拽相机和点击选择
                 canvas.addEventListener('pointerdown', (e) => {
                     this.isDragging = false;
+                    if (this.cameraReturnTween) {
+                        this.cameraReturnTween.stop();
+                        this.cameraReturnTween = null;
+                    }
                     this.dragStartPos = { x: e.clientX, y: e.clientY };
                 });
                 
@@ -363,7 +506,10 @@
                     if (e.buttons === 1) { // 左键或单指按下
                         const dx = e.clientX - this.dragStartPos.x;
                         const dy = e.clientY - this.dragStartPos.y;
-                        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) this.isDragging = true;
+                        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+                            this.isDragging = true;
+                            this.setCameraMode(CameraMode.DRAGGING);
+                        }
                         
                         // 等距视角下拖拽映射（简易版）
                         this.cameraOffset.x -= (dx + dy) * 0.02;
@@ -374,7 +520,7 @@
                 });
 
                 canvas.addEventListener('pointerup', (e) => {
-                    if (!this.isDragging && this.state === 'BUILD') {
+                    if (!this.isDragging && this.state === TurnState.ACTION_SELECT) {
                         // 处理点击射线检测
                         this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
                         this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
@@ -386,6 +532,9 @@
                             const slot = this.slots.find(s => s.mesh === clickedMesh);
                             this.handleSlotClick(slot);
                         }
+                    }
+                    if (this.isDragging) {
+                        this.returnCameraToFollow();
                     }
                     this.isDragging = false;
                 });
@@ -411,16 +560,19 @@
                 document.getElementById('char-hp-bar').style.width = `${(p.hp/p.maxHp)*100}%`;
                 document.getElementById('char-exp-bar').style.width = `${(p.exp/100)*100}%`;
 
-                document.getElementById('btn-roll').style.display = (p.isPlayer && this.state === 'IDLE') ? 'block' : 'none';
+                document.getElementById('btn-roll').style.display = (p.isPlayer && this.state === TurnState.IDLE) ? 'block' : 'none';
             },
 
             // 掷骰子动画
             rollDice() {
-                if (this.state !== 'IDLE') return;
-                this.state = 'MOVING';
+                if (this.state !== TurnState.IDLE) return;
+                this.transitionTo(TurnState.DICE);
+                this.setDicePhase(DicePhase.LAUNCH);
                 document.getElementById('btn-roll').style.display = 'none';
 
                 const p = this.players[this.currentPlayerIndex];
+                const activeDiceNode = this.nodes[p.nodeIndex];
+                this.setNodeFacilityOpacity(activeDiceNode, 0.36);
                 this.cameraOffset.set(0,0,0); // 视角归位
 
                 // 3D 实体骰子特效
@@ -430,7 +582,9 @@
                 const dice = new THREE.Mesh(diceGeom, materials);
                 
                 dice.position.copy(p.meshGroup.position);
-                dice.position.y += 4;
+                dice.position.y += 0.9;
+                dice.scale.set(0.45, 0.45, 0.45);
+                dice.renderOrder = 50;
                 this.scene.add(dice);
 
                 const result = Math.floor(Math.random() * 6) + 1;
@@ -438,11 +592,32 @@
 
                 // 随机翻滚动画
                 new TWEEN.Tween(dice.position)
-                    .to({ y: 6 }, 400).yoyo(true).repeat(1).easing(TWEEN.Easing.Quadratic.Out)
+                    .to({ y: 5.8 }, 430)
+                    .easing(TWEEN.Easing.Quadratic.Out)
+                    .onComplete(() => {
+                        this.setDicePhase(DicePhase.ROLL);
+                        new TWEEN.Tween(dice.position)
+                            .to({ y: 1.35 }, 520)
+                            .easing(TWEEN.Easing.Bounce.Out)
+                            .onComplete(() => this.setDicePhase(DicePhase.SETTLE))
+                            .start();
+                    })
+                    .start();
+
+                new TWEEN.Tween(dice.scale)
+                    .to({ x: 1.35, y: 1.35, z: 1.35 }, 430)
+                    .easing(TWEEN.Easing.Back.Out)
+                    .onComplete(() => {
+                        new TWEEN.Tween(dice.scale)
+                            .to({ x: 1.0, y: 1.0, z: 1.0 }, 520)
+                            .easing(TWEEN.Easing.Bounce.Out)
+                            .start();
+                    })
                     .start();
                 
                 new TWEEN.Tween(dice.rotation)
-                    .to({ x: Math.PI*4, y: Math.PI*4, z: Math.PI*4 }, 800)
+                    .to({ x: Math.PI*5, y: Math.PI*6, z: Math.PI*4 }, 950)
+                    .easing(TWEEN.Easing.Cubic.Out)
                     .onComplete(() => {
                         // 强制朝上面为骰出点数 (简易处理，直接设置最终面朝上)
                         let targetRot = {x:0, y:0, z:0};
@@ -451,6 +626,9 @@
                         
                         setTimeout(() => {
                             this.scene.remove(dice);
+                            this.setNodeFacilityOpacity(activeDiceNode, 1);
+                            this.setDicePhase(DicePhase.DONE);
+                            this.transitionTo(TurnState.MOVING);
                             this.moveCharacter(p, result);
                         }, 500);
                     })
@@ -460,14 +638,20 @@
             // 角色单步跳跃递归
             moveCharacter(player, stepsLeft) {
                 if (stepsLeft <= 0) {
+                    this.reflowNodeOccupants(player.nodeIndex, true);
                     this.handleLanding(player);
                     return;
                 }
 
                 const currNode = this.nodes[player.nodeIndex];
+                const oldNodeIndex = player.nodeIndex;
                 const nextNodeIndex = currNode.next;
                 const nextNode = this.nodes[nextNodeIndex];
                 player.nodeIndex = nextNodeIndex;
+                const nextOccupants = this.getPlayersOnNode(nextNodeIndex);
+                const targetStand = this.getNodeStandPosition(nextNodeIndex, player, nextOccupants);
+                this.reflowNodeOccupants(oldNodeIndex, true, player);
+                this.reflowNodeOccupants(nextNodeIndex, true, player);
 
                 // 物理挤压/拉伸跳跃 (Squash & Stretch)
                 const body = player.bodyMesh;
@@ -480,13 +664,17 @@
                     
                     // 位置抛物线
                     const jumpTween = new TWEEN.Tween(player.meshGroup.position)
-                        .to({ x: nextNode.x, z: nextNode.z }, 300)
+                        .to({ x: targetStand.x, z: targetStand.z }, 300)
+                        .easing(TWEEN.Easing.Quadratic.Out)
                         .start();
                     
                     const heightTween = new TWEEN.Tween(player.meshGroup.position)
                         .to({ y: 2.5 }, 150)
                         .yoyo(true).repeat(1).easing(TWEEN.Easing.Quadratic.Out)
                         .onComplete(() => {
+                            player.meshGroup.position.x = targetStand.x;
+                            player.meshGroup.position.z = targetStand.z;
+                            this.bounceNode(nextNode);
                             // 落地挤压恢复
                             new TWEEN.Tween(body.scale).to({ x: 1.2, y: 0.8, z: 1.2 }, 100)
                             .onComplete(() => {
@@ -501,7 +689,7 @@
 
             // 异步事件队列入口
             async handleLanding(player) {
-                this.state = 'EVENT';
+                this.transitionTo(TurnState.OWNED_EVENTS);
                 this.activeNode = this.nodes[player.nodeIndex];
                 const slots = this.activeNode.slots;
 
@@ -512,7 +700,9 @@
                 }
 
                 // 严格按照：敌方被动陷阱 -> 敌方守卫强制战斗 -> 己方增益 -> 城建互动 的顺序
-                for (let slot of slots) {
+                for (let slot of this.getOrderedLandingEventSlots(slots, player)) {
+                    if (slot.owner === player) this.transitionTo(TurnState.OWNED_EVENTS);
+                    if (slot.owner && slot.owner !== player) this.transitionTo(TurnState.ENEMY_EVENTS);
                     if (slot.owner && slot.owner !== player) {
                         if (slot.type === 'TRAP') await this.triggerTrap(slot, player);
                         if (player.hp <= 0) break;
@@ -654,12 +844,13 @@
             },
 
             enterBuildPhase(player) {
-                this.state = 'BUILD';
+                this.transitionTo(TurnState.ACTION_SELECT);
                 const slots = this.activeNode.slots;
 
                 // 阶段一：地块高亮跳动
                 slots.forEach(s => {
-                    new TWEEN.Tween(s.mesh.position).to({y: 0.2}, 400).yoyo(true).repeat(Infinity).start();
+                    const highlightTween = new TWEEN.Tween(s.mesh.position).to({y: 0.2}, 400).yoyo(true).repeat(Infinity).start();
+                    this.slotHighlightTweens.push(highlightTween);
                     s.mesh.material.color.setHex(0xffffff); // 高亮
                 });
 
@@ -669,7 +860,7 @@
                 } else {
                     // AI 自动逻辑：随机选个空地造建筑
                     setTimeout(() => {
-                        this.stopSlotHighlight();
+                        this.stopSlotHighlightOnly();
                         const emptySlot = slots.find(s => s.type === 'EMPTY');
                         if (emptySlot && player.gold >= 100) {
                             const types = ['TRAP', 'GUARD', 'INCOME'];
@@ -683,6 +874,8 @@
             },
 
             stopSlotHighlight() {
+                this.stopSlotHighlightOnly();
+                return;
                 TWEEN.removeAll(); // 停止所有动画
                 this.activeNode.slots.forEach(s => {
                     s.mesh.position.y = 0.05;
@@ -690,13 +883,24 @@
                 });
             },
 
+            stopSlotHighlightOnly() {
+                this.slotHighlightTweens.forEach(tween => tween.stop());
+                this.slotHighlightTweens = [];
+                if (!this.activeNode) return;
+                this.activeNode.slots.forEach(s => {
+                    s.mesh.position.y = 0.05;
+                    s.mesh.material.color.setHex(0xdfe4ea);
+                });
+            },
+
             handleSlotClick(slot) {
                 if (!this.activeNode.slots.includes(slot)) return;
                 
-                this.stopSlotHighlight();
+                this.stopSlotHighlightOnly();
                 this.selectedSlot = slot;
 
                 const player = this.players[this.currentPlayerIndex];
+                this.transitionTo(TurnState.ACTION_MENU);
                 
                 // 阶段二：弹出菜单
                 if (slot.type === 'EMPTY') {
@@ -763,7 +967,7 @@
             },
 
             endTurn() {
-                this.stopSlotHighlight();
+                this.stopSlotHighlightOnly();
                 document.getElementById('build-menu').style.display = 'none';
                 document.getElementById('btn-end').style.display = 'none';
                 
@@ -771,7 +975,7 @@
                 this.updateUI();
                 
                 const nextPlayer = this.players[this.currentPlayerIndex];
-                this.state = 'IDLE';
+                this.transitionTo(TurnState.IDLE);
                 
                 if (!nextPlayer.isPlayer) {
                     this.log(`====== ${nextPlayer.name} 的回合 ======`);
@@ -798,7 +1002,9 @@
                     );
                     
                     // lerp 平滑插值 (阻尼感)
-                    const lerpFactor = this.isDragging ? 0.3 : 0.05; 
+                    const lerpFactor = this.cameraMode === CameraMode.DRAGGING
+                        ? 0.3
+                        : (this.cameraMode === CameraMode.RETURNING ? 0.12 : 0.05);
                     
                     // 计算相机 lookAt 中心点
                     const currentCenter = new THREE.Vector3();
@@ -815,8 +1021,8 @@
                 // AI 角色的微弱呼吸动画
                 const time = Date.now() * 0.003;
                 this.players.forEach(player => {
-                    if(this.state !== 'MOVING' || player.id !== this.currentPlayerIndex) {
-                       player.bodyMesh.position.y = 0.6 + Math.sin(time + player.id)*0.05;
+                    if(this.state !== TurnState.MOVING || player.id !== this.currentPlayerIndex) {
+                       player.bodyMesh.position.y = 0.45 + Math.sin(time + player.id)*0.04;
                     }
                 });
 
