@@ -746,6 +746,12 @@
                 return 50 + slot.level * 35;
             },
 
+            getUpgradeDefenseGain(slot) {
+                return this.canFacilityHostGuards(slot)
+                    ? 12 + slot.level * 4
+                    : 20 + slot.level * 9;
+            },
+
             isFacilityMaxLevel(slot) {
                 return slot.type !== 'EMPTY' && slot.level >= slot.maxLevel;
             },
@@ -1821,11 +1827,12 @@
 
                 player.gold -= cost;
                 slot.level += 1;
-                slot.defense += 12 + slot.level * 4;
+                const defenseGain = this.getUpgradeDefenseGain(slot);
+                slot.defense += defenseGain;
                 if (this.canFacilityHostGuards(slot)) slot.guardSlots = this.getGuardCapacity(slot);
                 this.updateFacilityVisual(slot);
                 this.createFloatingText(`Lv.${slot.level}`, slot.mesh.position, "#2ed573");
-                this.log(`花费 ${cost}G 将 ${this.getFacilityName(slot)} 升到 Lv.${slot.level}。`);
+                this.log(`花费 ${cost}G 将 ${this.getFacilityName(slot)} 升到 Lv.${slot.level}，防御 +${defenseGain}。`);
                 document.getElementById('build-menu').style.display = 'none';
                 this.updateUI();
                 this.finishAction(true);

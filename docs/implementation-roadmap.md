@@ -75,6 +75,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added pre-battle camera close-ups for the taunt/typewriter sequence.
 - Added command-level camera focus changes for attack, skill, defend, flee, and counterattacks.
 - Added enemy passive events for income, healing, training, and guarded non-guard buildings.
+- Added faster defense scaling for facilities that cannot host guards.
 
 ## Validation Gates
 
