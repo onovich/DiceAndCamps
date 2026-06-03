@@ -444,6 +444,7 @@
             battleCameraFocus: null,
             battleHand: [],
             wizardTradeResolver: null,
+            wizardCardChoices: [],
             actionConsumedThisTurn: false,
             maxFacilityLevel: 3,
             cardLibrary: {
@@ -1393,14 +1394,26 @@
                 }
 
                 document.getElementById('wizard-menu').style.display = 'block';
+                this.resetWizardMenu();
                 await new Promise(resolve => {
                     this.wizardTradeResolver = resolve;
                 });
                 document.getElementById('wizard-menu').style.display = 'none';
                 this.wizardTradeResolver = null;
+                this.resetWizardMenu();
                 this.updateUI();
                 await this.wait(220);
                 this.transitionTo(TurnState.OWNED_EVENTS);
+            },
+
+            resetWizardMenu() {
+                this.wizardCardChoices = [];
+                document.getElementById('wizard-desc').innerText = "献上一点代价，换一张战斗卡。";
+                document.getElementById('wizard-options').innerHTML = `
+                    <button class="build-btn training" onclick="Game.resolveWizardTrade('gold')">献上 60G</button>
+                    <button class="build-btn heal" onclick="Game.resolveWizardTrade('hp')">献上 12HP</button>
+                    <button class="build-btn cancel" onclick="Game.resolveWizardTrade('skip')">离开</button>
+                `;
             },
 
             resolveWizardTrade(choice) {
@@ -1413,14 +1426,16 @@
                         return;
                     }
                     player.gold -= 60;
-                    this.grantRandomCard(player);
+                    this.showWizardCardChoices(player);
+                    return;
                 } else if (choice === 'hp') {
                     if (player.hp <= 12) {
                         this.log("生命太低，巫师拒绝收取代价。");
                         return;
                     }
                     player.hp = Math.max(1, player.hp - 12);
-                    this.grantRandomCard(player);
+                    this.showWizardCardChoices(player);
+                    return;
                 } else {
                     this.log("你离开了巫师摊位。");
                 }
@@ -1429,9 +1444,39 @@
                 resolve();
             },
 
+            showWizardCardChoices(player) {
+                this.updateUI();
+                const optionBox = document.getElementById('wizard-options');
+                document.getElementById('wizard-desc').innerText = "选择一张卡加入你的牌库。";
+                optionBox.innerHTML = '';
+                const pool = this.shuffleCards(['FIREBALL', 'RALLY', 'MEND', 'GUARD_UP', 'STRIKE']);
+                this.wizardCardChoices = pool.slice(0, 3);
+                this.wizardCardChoices.forEach(cardId => {
+                    const card = this.cardLibrary[cardId];
+                    const btn = document.createElement('button');
+                    btn.className = 'battle-card';
+                    btn.onclick = () => this.chooseWizardCard(cardId);
+                    btn.innerHTML = `<strong>${card.name}</strong><em>${this.getCardKindLabel(card.kind)}</em><span>${card.text}</span>`;
+                    optionBox.appendChild(btn);
+                });
+            },
+
+            chooseWizardCard(cardId) {
+                if (!this.wizardTradeResolver) return;
+                const player = this.players[this.currentPlayerIndex];
+                this.grantCard(player, cardId);
+                this.wizardCardChoices = [];
+                const resolve = this.wizardTradeResolver;
+                resolve();
+            },
+
             grantRandomCard(player) {
                 const pool = ['FIREBALL', 'RALLY', 'MEND', 'GUARD_UP'];
                 const cardId = pool[Math.floor(Math.random() * pool.length)];
+                this.grantCard(player, cardId);
+            },
+
+            grantCard(player, cardId) {
                 player.deck.push(cardId);
                 const card = this.cardLibrary[cardId];
                 this.log(`${player.name} 获得卡牌《${card.name}》。`);
@@ -2408,6 +2453,7 @@
                 document.getElementById('build-menu').style.display = 'none';
                 document.getElementById('branch-menu').style.display = 'none';
                 document.getElementById('wizard-menu').style.display = 'none';
+                this.resetWizardMenu();
                 document.getElementById('btn-end').style.display = 'none';
                 
                 this.currentPlayerIndex = (this.currentPlayerIndex + 1) % 4;
