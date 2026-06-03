@@ -1435,6 +1435,9 @@
                     ...this.slots.map(s => s.facilityMesh).filter(Boolean),
                     ...this.monsters.map(m => m.meshGroup).filter(Boolean)
                 ].filter(obj => obj !== attacker.meshGroup && obj !== enemyMesh);
+                const bystanders = this.players
+                    .map(player => player.meshGroup)
+                    .filter(mesh => mesh && mesh !== attacker.meshGroup && mesh !== enemyMesh);
 
                 return {
                     camera: {
@@ -1457,6 +1460,14 @@
                         mesh,
                         index,
                         position: mesh.position.clone(),
+                        visible: mesh.visible
+                    })),
+                    bystanders: bystanders.map((mesh, index) => ({
+                        mesh,
+                        index,
+                        position: mesh.position.clone(),
+                        rotation: mesh.rotation.clone(),
+                        scale: mesh.scale.clone(),
                         visible: mesh.visible
                     }))
                 };
@@ -1490,6 +1501,13 @@
                     new TWEEN.Tween(mesh.position)
                         .to({ y: position.y - 10 }, 420)
                         .delay(index * 14)
+                        .easing(TWEEN.Easing.Back.In)
+                        .start();
+                });
+                this.battleSnapshot.bystanders.forEach(({ mesh, index, position }) => {
+                    new TWEEN.Tween(mesh.position)
+                        .to({ y: position.y - 9 }, 360)
+                        .delay(index * 36)
                         .easing(TWEEN.Easing.Back.In)
                         .start();
                 });
@@ -1555,6 +1573,16 @@
                         .delay(index * 10)
                         .easing(TWEEN.Easing.Back.Out)
                         .start();
+                });
+                snapshot.bystanders.forEach(({ mesh, position, rotation, scale, visible, index }) => {
+                    mesh.visible = visible;
+                    new TWEEN.Tween(mesh.position)
+                        .to({ x: position.x, y: position.y, z: position.z }, 420)
+                        .delay(index * 34)
+                        .easing(TWEEN.Easing.Back.Out)
+                        .start();
+                    mesh.rotation.copy(rotation);
+                    mesh.scale.copy(scale);
                 });
 
                 new TWEEN.Tween(snapshot.attacker.mesh.position)

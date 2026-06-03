@@ -77,6 +77,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added enemy passive events for income, healing, training, and guarded non-guard buildings.
 - Added faster defense scaling for facilities that cannot host guards.
 - Strengthened dice render layering so characters cannot depth-occlude the roll result.
+- Added battle snapshot, exit, and restore handling for noncombat characters.
 
 ## Validation Gates
 
