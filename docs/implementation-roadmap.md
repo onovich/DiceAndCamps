@@ -72,6 +72,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Add guard recruitment/assignment and more building event designs.
 - Added healing camps and training camps as owned building events.
 - Added automatic AI battle commands so passive AI encounters cannot block on human input.
+- Added pre-battle camera close-ups for the taunt/typewriter sequence.
 
 ## Validation Gates
 

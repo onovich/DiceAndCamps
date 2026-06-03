@@ -322,6 +322,7 @@
             battleCommandResolver: null,
             battleFloor: null,
             battleSnapshot: null,
+            battleCameraFocus: null,
             actionConsumedThisTurn: false,
             maxFacilityLevel: 3,
             facilityConfigs: {
@@ -1438,6 +1439,7 @@
             async enterBattleScene(attacker, enemy) {
                 const enemyMesh = enemy.meshGroup || null;
                 this.battleSnapshot = this.captureBattleSnapshot(attacker, enemyMesh);
+                this.battleCameraFocus = attacker.meshGroup.position.clone();
                 const floor = this.createBattleFloor();
 
                 this.battleSnapshot.mapObjects.forEach(({ mesh, index, position }) => {
@@ -1475,11 +1477,28 @@
                         .start();
                 }
 
+                this.focusBattleCamera(new THREE.Vector3(4.9, 0.4, 5.0), 1.25, 520);
+                await this.wait(700);
+            },
+
+            focusBattleCamera(target, zoom = 1.35, duration = 360) {
+                const targetPos = target.position ? target.position : target;
+                if (!this.battleCameraFocus) {
+                    this.battleCameraFocus = new THREE.Vector3(this.camera.position.x - 20, 0, this.camera.position.z - 20);
+                }
+
+                new TWEEN.Tween(this.battleCameraFocus)
+                    .to({ x: targetPos.x, y: targetPos.y || 0, z: targetPos.z }, duration)
+                    .easing(TWEEN.Easing.Cubic.Out)
+                    .start();
+
                 new TWEEN.Tween(this.camera)
-                    .to({ zoom: 1.25 }, 520)
+                    .to({ zoom }, duration)
+                    .easing(TWEEN.Easing.Cubic.Out)
                     .onUpdate(() => this.camera.updateProjectionMatrix())
                     .start();
-                await this.wait(700);
+
+                return this.wait(duration);
             },
 
             async exitBattleScene() {
@@ -1522,6 +1541,7 @@
                 }
 
                 this.camera.position.copy(snapshot.camera.position);
+                this.battleCameraFocus = null;
                 new TWEEN.Tween(this.camera)
                     .to({ zoom: snapshot.camera.zoom }, 300)
                     .onUpdate(() => this.camera.updateProjectionMatrix())
@@ -1530,17 +1550,22 @@
                 this.battleSnapshot = null;
             },
 
-            async showTauntSequence(attacker, enemyName) {
+            async showTauntSequence(attacker, enemy) {
                 const layer = document.getElementById('taunt-layer');
                 const heroBox = document.getElementById('taunt-hero');
                 const enemyBox = document.getElementById('taunt-enemy');
+                const enemyName = enemy.name;
+                const enemyFocus = enemy.meshGroup || enemy.slot?.mesh || attacker.meshGroup;
                 layer.style.display = 'block';
                 heroBox.innerText = '';
                 enemyBox.innerText = '';
+                await this.focusBattleCamera(attacker.meshGroup, 1.68, 340);
                 await this.typeBattleText(heroBox, `${attacker.name}: 这块地，我要闯过去！`);
                 await this.wait(220);
+                await this.focusBattleCamera(enemyFocus, 1.78, 340);
                 await this.typeBattleText(enemyBox, `${enemyName}: 来吧，先打碎我的气势！`);
                 await this.wait(420);
+                await this.focusBattleCamera(new THREE.Vector3(4.9, 0.4, 5.0), 1.25, 300);
                 layer.style.display = 'none';
             },
 
@@ -1661,7 +1686,7 @@
                 this.log(`${attacker.name} 向 ${enemyState.name} 发起战斗！`);
 
                 await this.enterBattleScene(attacker, enemy);
-                await this.showTauntSequence(attacker, enemyState.name);
+                await this.showTauntSequence(attacker, enemy);
                 const enemyMesh = enemy.meshGroup || (sourceSlot ? sourceSlot.mesh : null);
                 const enemyPos = enemyMesh ? enemyMesh.position : attacker.meshGroup.position;
 
@@ -1907,17 +1932,21 @@
                 // 相机阻尼跟随逻辑
                 const p = this.players[this.currentPlayerIndex];
                 if (p && p.meshGroup) {
-                    // 目标位置 = 当前角色位置 + 拖拽偏移量
-                    this.cameraTarget.set(
-                        p.meshGroup.position.x + this.cameraOffset.x,
-                        p.meshGroup.position.y,
-                        p.meshGroup.position.z + this.cameraOffset.z
-                    );
+                    if (this.state === TurnState.BATTLE && this.battleCameraFocus) {
+                        this.cameraTarget.copy(this.battleCameraFocus);
+                    } else {
+                        // 目标位置 = 当前角色位置 + 拖拽偏移量
+                        this.cameraTarget.set(
+                            p.meshGroup.position.x + this.cameraOffset.x,
+                            p.meshGroup.position.y,
+                            p.meshGroup.position.z + this.cameraOffset.z
+                        );
+                    }
                     
                     // lerp 平滑插值 (阻尼感)
                     const lerpFactor = this.cameraMode === CameraMode.DRAGGING
                         ? 0.3
-                        : (this.cameraMode === CameraMode.RETURNING ? 0.12 : 0.05);
+                        : (this.state === TurnState.BATTLE ? 0.16 : (this.cameraMode === CameraMode.RETURNING ? 0.12 : 0.05));
                     
                     // 计算相机 lookAt 中心点
                     const currentCenter = new THREE.Vector3();
