@@ -8,8 +8,8 @@ The current version is an all-in-one static HTML game built with Three.js r128 a
 
 - Four-player board loop with one human player and simple AI turns.<br/>**四名角色在环形棋盘上行动，其中一名为人类玩家，其余为简单 AI。**
 - 3D dice roll animation, character jump movement, camera follow, and drag panning.<br/>**包含 3D 掷骰动画、角色跳跃移动、镜头跟随和拖拽平移。**
-- RPG stats, combat events, traps, guard encounters, gold, experience, and leveling.<br/>**包含 RPG 属性、战斗事件、陷阱、守卫遭遇、金币、经验和升级。**
-- Two-step camp building around the current node, with traps, guards, and income facilities.<br/>**支持围绕当前节点进行二段式营地建造，可建陷阱、守卫和收益设施。**
+- RPG stats, JRPG-style battle commands, passive AI battle choices, gold, experience, and leveling.<br/>**包含 RPG 属性、JRPG 式战斗指令、AI 被动战斗自动决策、金币、经验和升级。**
+- Two-step camp building around the current node, with traps, guard posts, gold mines, healing camps, training camps, upgrades, demolition, and guard recruitment.<br/>**支持围绕当前节点进行二段式营地建造，可建陷阱、守卫哨站、金矿、治疗营地和训练营，并支持升级、拆毁和招募守军。**
 
 ## Run Locally
 
@@ -52,5 +52,4 @@ Open the configured online preview with:<br/>**可用以下命令打开线上预
 
 ## Development Notes
 
-This repository currently preserves the prototype as a static single-file game. The next maintainability step is to split game data, rendering, input, UI, and turn/event logic into modules before adding larger gameplay features.<br/>**本仓库目前保留静态单文件游戏原型。下一步可维护性工作是在继续扩展玩法前，将游戏数据、渲染、输入、UI、回合与事件逻辑拆分为模块。**
-
+This repository currently preserves the prototype as a static single-file game. The next maintainability step is to split game data, rendering, input, UI, and turn/event logic into modules after the current gameplay pass stabilizes.<br/>**本仓库目前保留静态单文件游戏原型。下一步可维护性工作是在当前玩法扩展稳定后，将游戏数据、渲染、输入、UI、回合与事件逻辑拆分为模块。**

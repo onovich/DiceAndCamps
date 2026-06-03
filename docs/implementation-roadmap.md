@@ -70,6 +70,8 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Expand loop map with branches.
 - Add staggered map appear/disappear.
 - Add guard recruitment/assignment and more building event designs.
+- Added healing camps and training camps as owned building events.
+- Added automatic AI battle commands so passive AI encounters cannot block on human input.
 
 ## Validation Gates
 
