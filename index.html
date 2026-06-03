@@ -95,6 +95,7 @@
         .build-btn.income { background: #eccc68; color: #333; }
         .build-btn.upgrade { background: #2ed573; color: #063b1f; }
         .build-btn.demolish { background: #57606f; color: white; }
+        .build-btn.recruit { background: #ff9f1a; color: #211300; }
         .build-btn.monster { background: #ff6b81; color: white; }
         .build-btn.challenge { background: #1e90ff; color: white; }
         .build-btn.cancel { background: #ced6e0; color: #333; }
@@ -219,6 +220,7 @@
                 <button id="btn-build-guard" class="build-btn guard" onclick="Game.buildFacility('GUARD')">守卫 (80G)</button>
                 <button id="btn-build-income" class="build-btn income" onclick="Game.buildFacility('INCOME')">金矿 (100G)</button>
                 <button id="btn-upgrade-facility" class="build-btn upgrade" onclick="Game.upgradeSelectedFacility()">升级</button>
+                <button id="btn-recruit-guard" class="build-btn recruit" onclick="Game.recruitGuardForSelectedFacility()">招募守军</button>
                 <button id="btn-demolish-facility" class="build-btn demolish" onclick="Game.demolishSelectedFacility()">拆毁</button>
                 <button id="btn-fight-monster" class="build-btn monster" onclick="Game.fightSelectedMonster()">讨伐野怪</button>
                 <button id="btn-challenge-facility" class="build-btn challenge" onclick="Game.challengeSelectedFacility()">挑战建筑</button>
@@ -319,10 +321,11 @@
             actionConsumedThisTurn: false,
             maxFacilityLevel: 3,
             facilityConfigs: {
-                TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10 },
-                GUARD: { name: '守卫哨站', cost: 80, color: 0xff4757, maxLevel: 3, baseDefense: 18 },
-                INCOME: { name: '金矿', cost: 100, color: 0xeccc68, maxLevel: 3, baseDefense: 14 }
+                TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10, allowsGuards: false, guardSlots: 0 },
+                GUARD: { name: '守卫哨站', cost: 80, color: 0xff4757, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 1 },
+                INCOME: { name: '金矿', cost: 100, color: 0xeccc68, maxLevel: 3, baseDefense: 14, allowsGuards: true, guardSlots: 1 }
             },
+            guardRecruitCost: 65,
             cameraOffset: new THREE.Vector3(0, 0, 0),
             cameraTarget: new THREE.Vector3(0, 0, 0),
             dragStartPos: {x:0, y:0},
@@ -740,6 +743,33 @@
                 return slot.type !== 'EMPTY' && slot.level >= slot.maxLevel;
             },
 
+            canFacilityHostGuards(slot) {
+                return slot.type !== 'EMPTY' && !!this.getFacilityConfig(slot.type).allowsGuards;
+            },
+
+            getGuardCapacity(slot) {
+                if (!this.canFacilityHostGuards(slot)) return 0;
+                const config = this.getFacilityConfig(slot.type);
+                return Math.max(config.guardSlots || 1, slot.level);
+            },
+
+            getGuardRecruitCost(slot) {
+                return this.guardRecruitCost + slot.guards.length * 25 + Math.max(0, slot.level - 1) * 10;
+            },
+
+            createGuard(slot) {
+                const index = slot.guards.length + 1;
+                return {
+                    name: `${this.getFacilityName(slot)}守军${index}`,
+                    hp: 18 + slot.level * 7,
+                    atk: 5 + slot.level * 3
+                };
+            },
+
+            getGuardPower(slot) {
+                return slot.guards.reduce((sum, guard) => sum + guard.hp + guard.atk * 3, 0);
+            },
+
             setActionConsumed(consumed) {
                 this.actionConsumedThisTurn = consumed;
             },
@@ -763,14 +793,17 @@
                     btn.disabled = false;
                 });
                 const upgradeBtn = document.getElementById('btn-upgrade-facility');
+                const recruitBtn = document.getElementById('btn-recruit-guard');
                 const demolishBtn = document.getElementById('btn-demolish-facility');
                 const monsterBtn = document.getElementById('btn-fight-monster');
                 const challengeBtn = document.getElementById('btn-challenge-facility');
                 upgradeBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
+                recruitBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
                 demolishBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
                 monsterBtn.style.display = mode === 'monster' ? 'inline-block' : 'none';
                 challengeBtn.style.display = mode === 'enemy' ? 'inline-block' : 'none';
                 upgradeBtn.disabled = false;
+                recruitBtn.disabled = false;
                 demolishBtn.disabled = false;
                 monsterBtn.disabled = false;
                 challengeBtn.disabled = false;
@@ -781,11 +814,34 @@
                 const scale = 1 + (slot.level - 1) * 0.18;
                 slot.facilityMesh.scale.set(scale, scale, scale);
                 slot.facilityMesh.position.y = 0.6 + (slot.level - 1) * 0.08;
+                this.updateGuardMarkers(slot);
+            },
+
+            updateGuardMarkers(slot) {
+                if (slot.guardMarkerGroup) {
+                    this.scene.remove(slot.guardMarkerGroup);
+                    slot.guardMarkerGroup = null;
+                }
+                if (!slot.guards || slot.guards.length === 0) return;
+
+                const group = new THREE.Group();
+                slot.guards.forEach((guard, index) => {
+                    const marker = this.createToonBox(0.22, 0.28, 0.22, 0x1e90ff, false);
+                    const angle = (Math.PI * 2 * index) / Math.max(1, slot.guards.length);
+                    marker.position.set(Math.cos(angle) * 0.55, 0.95, Math.sin(angle) * 0.55);
+                    group.add(marker);
+                });
+                group.position.set(slot.x, 0, slot.z);
+                this.scene.add(group);
+                slot.guardMarkerGroup = group;
             },
 
             clearFacility(slot) {
                 if (slot.facilityMesh) {
                     this.scene.remove(slot.facilityMesh);
+                }
+                if (slot.guardMarkerGroup) {
+                    this.scene.remove(slot.guardMarkerGroup);
                 }
                 slot.type = 'EMPTY';
                 slot.level = 0;
@@ -795,6 +851,7 @@
                 slot.defense = 0;
                 slot.guardSlots = 0;
                 slot.guards = [];
+                slot.guardMarkerGroup = null;
             },
 
             initEvents() {
@@ -1213,12 +1270,19 @@
                 } else if (slot.owner === player) {
                     this.setBuildMenuButtons('owned');
                     const upgradeBtn = document.getElementById('btn-upgrade-facility');
+                    const recruitBtn = document.getElementById('btn-recruit-guard');
                     const demolishBtn = document.getElementById('btn-demolish-facility');
                     const maxed = this.isFacilityMaxLevel(slot);
+                    const guardCapacity = this.getGuardCapacity(slot);
+                    const guardCost = this.getGuardRecruitCost(slot);
                     upgradeBtn.disabled = maxed || player.gold < this.getUpgradeCost(slot);
                     upgradeBtn.innerText = maxed ? "已满级" : `升级 (${this.getUpgradeCost(slot)}G)`;
+                    recruitBtn.disabled = !this.canFacilityHostGuards(slot) || slot.guards.length >= guardCapacity || player.gold < guardCost;
+                    recruitBtn.innerText = this.canFacilityHostGuards(slot)
+                        ? `招募守军 (${guardCost}G)`
+                        : "不可驻防";
                     demolishBtn.disabled = false;
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}。升级会消耗当前行动，拆毁不会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，守军 ${slot.guards.length}/${guardCapacity}。升级或招募会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
@@ -1298,13 +1362,15 @@
 
             createBuildingBattleEnemy(slot) {
                 const hasGuard = slot.guards.length > 0 || slot.type === 'GUARD';
-                const wallHp = Math.max(18, slot.defense);
-                const guardHp = hasGuard ? 24 + slot.level * 8 : 0;
+                const wallHp = Math.max(28, slot.defense * 2);
+                const guardHp = slot.guards.reduce((sum, guard) => sum + guard.hp, 0)
+                    + (slot.type === 'GUARD' && slot.guards.length === 0 ? 24 + slot.level * 8 : 0);
+                const guardAtk = slot.guards.reduce((sum, guard) => sum + guard.atk, 0);
                 return {
                     name: hasGuard ? `${this.getFacilityName(slot)}守军与城墙` : `${this.getFacilityName(slot)}城墙`,
                     hp: wallHp + guardHp,
                     maxHp: wallHp + guardHp,
-                    atk: hasGuard ? 8 + slot.level * 3 : 3 + slot.level,
+                    atk: hasGuard ? 6 + slot.level * 2 + guardAtk : 3 + slot.level,
                     slot,
                     meshGroup: slot.facilityMesh || slot.mesh
                 };
@@ -1674,10 +1740,46 @@
                 player.gold -= cost;
                 slot.level += 1;
                 slot.defense += 12 + slot.level * 4;
-                if (slot.type !== 'TRAP') slot.guardSlots = Math.max(slot.guardSlots, slot.level);
+                if (this.canFacilityHostGuards(slot)) slot.guardSlots = this.getGuardCapacity(slot);
                 this.updateFacilityVisual(slot);
                 this.createFloatingText(`Lv.${slot.level}`, slot.mesh.position, "#2ed573");
                 this.log(`花费 ${cost}G 将 ${this.getFacilityName(slot)} 升到 Lv.${slot.level}。`);
+                document.getElementById('build-menu').style.display = 'none';
+                this.updateUI();
+                this.finishAction(true);
+            },
+
+            recruitGuardForSelectedFacility() {
+                const player = this.players[this.currentPlayerIndex];
+                const slot = this.selectedSlot;
+                if (!slot || slot.owner !== player || slot.type === 'EMPTY') {
+                    this.log("只能给自己的建筑招募守军。");
+                    return;
+                }
+                if (!this.canFacilityHostGuards(slot)) {
+                    this.log(`${this.getFacilityName(slot)} 不能驻防守军，但可以快速升级防御。`);
+                    return;
+                }
+
+                const capacity = this.getGuardCapacity(slot);
+                if (slot.guards.length >= capacity) {
+                    this.log("守军已经满员。升级建筑可以扩充驻防上限。");
+                    return;
+                }
+
+                const cost = this.getGuardRecruitCost(slot);
+                if (player.gold < cost) {
+                    this.log(`金币不足，招募守军需要 ${cost}G。`);
+                    return;
+                }
+
+                player.gold -= cost;
+                const guard = this.createGuard(slot);
+                slot.guards.push(guard);
+                slot.defense += 6 + slot.level * 2;
+                this.updateGuardMarkers(slot);
+                this.createFloatingText("+守军", slot.mesh.position, "#1e90ff");
+                this.log(`花费 ${cost}G 为 ${this.getFacilityName(slot)} 招募了 ${guard.name}。`);
                 document.getElementById('build-menu').style.display = 'none';
                 this.updateUI();
                 this.finishAction(true);
@@ -1722,7 +1824,7 @@
                     slot.level = 1;
                     slot.maxLevel = config.maxLevel || this.maxFacilityLevel;
                     slot.defense = config.baseDefense;
-                    slot.guardSlots = type === 'TRAP' ? 0 : 1;
+                    slot.guardSlots = config.allowsGuards ? config.guardSlots : 0;
                     slot.guards = [];
                     
                     // 在地块上生成 3D 建筑模型
