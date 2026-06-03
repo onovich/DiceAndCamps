@@ -93,6 +93,8 @@
         .build-btn.trap { background: #a55eea; color: white; }
         .build-btn.guard { background: #ff4757; color: white; }
         .build-btn.income { background: #eccc68; color: #333; }
+        .build-btn.heal { background: #7bed9f; color: #063b1f; }
+        .build-btn.training { background: #ffb142; color: #332000; }
         .build-btn.upgrade { background: #2ed573; color: #063b1f; }
         .build-btn.demolish { background: #57606f; color: white; }
         .build-btn.recruit { background: #ff9f1a; color: #211300; }
@@ -219,6 +221,8 @@
                 <button id="btn-build-trap" class="build-btn trap" onclick="Game.buildFacility('TRAP')">陷阱 (50G)</button>
                 <button id="btn-build-guard" class="build-btn guard" onclick="Game.buildFacility('GUARD')">守卫 (80G)</button>
                 <button id="btn-build-income" class="build-btn income" onclick="Game.buildFacility('INCOME')">金矿 (100G)</button>
+                <button id="btn-build-heal" class="build-btn heal" onclick="Game.buildFacility('HEAL')">治疗营地 (90G)</button>
+                <button id="btn-build-training" class="build-btn training" onclick="Game.buildFacility('TRAINING')">训练营 (120G)</button>
                 <button id="btn-upgrade-facility" class="build-btn upgrade" onclick="Game.upgradeSelectedFacility()">升级</button>
                 <button id="btn-recruit-guard" class="build-btn recruit" onclick="Game.recruitGuardForSelectedFacility()">招募守军</button>
                 <button id="btn-demolish-facility" class="build-btn demolish" onclick="Game.demolishSelectedFacility()">拆毁</button>
@@ -323,7 +327,9 @@
             facilityConfigs: {
                 TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10, allowsGuards: false, guardSlots: 0 },
                 GUARD: { name: '守卫哨站', cost: 80, color: 0xff4757, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 1 },
-                INCOME: { name: '金矿', cost: 100, color: 0xeccc68, maxLevel: 3, baseDefense: 14, allowsGuards: true, guardSlots: 1 }
+                INCOME: { name: '金矿', cost: 100, color: 0xeccc68, maxLevel: 3, baseDefense: 14, allowsGuards: true, guardSlots: 1 },
+                HEAL: { name: '治疗营地', cost: 90, color: 0x7bed9f, maxLevel: 3, baseDefense: 12, allowsGuards: true, guardSlots: 1 },
+                TRAINING: { name: '训练营', cost: 120, color: 0xffb142, maxLevel: 3, baseDefense: 16, allowsGuards: true, guardSlots: 1 }
             },
             guardRecruitCost: 65,
             cameraOffset: new THREE.Vector3(0, 0, 0),
@@ -528,7 +534,7 @@
 
                 const slot = {
                     node: node, x: x, z: z, mesh: slotMesh,
-                    type: 'EMPTY', // EMPTY, TRAP, GUARD, INCOME
+                    type: 'EMPTY', // EMPTY, TRAP, GUARD, INCOME, HEAL, TRAINING
                     level: 0,
                     maxLevel: this.maxFacilityLevel,
                     owner: null,
@@ -785,12 +791,15 @@
             },
 
             setBuildMenuButtons(mode) {
-                const buildIds = ['btn-build-trap', 'btn-build-guard', 'btn-build-income'];
+                const buildIds = ['btn-build-trap', 'btn-build-guard', 'btn-build-income', 'btn-build-heal', 'btn-build-training'];
                 document.querySelector('.build-options').style.display = 'flex';
+                const player = this.players[this.currentPlayerIndex];
                 buildIds.forEach(id => {
                     const btn = document.getElementById(id);
                     btn.style.display = mode === 'build' ? 'inline-block' : 'none';
-                    btn.disabled = false;
+                    const type = btn.getAttribute('onclick').match(/'([^']+)'/)?.[1];
+                    const cost = this.facilityConfigs[type]?.cost || 0;
+                    btn.disabled = mode === 'build' && player.gold < cost;
                 });
                 const upgradeBtn = document.getElementById('btn-upgrade-facility');
                 const recruitBtn = document.getElementById('btn-recruit-guard');
@@ -1075,11 +1084,8 @@
                         if (player.hp <= 0) break;
                         if (slot.type === 'GUARD') await this.triggerCombat(slot, player);
                         if (player.hp <= 0) break;
-                    } else if (slot.owner === player && slot.type === 'INCOME') {
-                        const income = 40 + slot.level * 25 + slot.guards.length * 10;
-                        this.log(`路过自己的金矿，收益 +${income}G`);
-                        player.gold += income;
-                        this.createFloatingText(`+${income}G`, slot.mesh.position, "#eccc68");
+                    } else if (slot.owner === player) {
+                        await this.triggerOwnedFacility(slot, player);
                     }
                 }
 
@@ -1094,6 +1100,28 @@
 
                 // 进入二段式建筑操作阶段
                 this.enterBuildPhase(player);
+            },
+
+            async triggerOwnedFacility(slot, player) {
+                if (slot.type === 'INCOME') {
+                    const income = 40 + slot.level * 25 + slot.guards.length * 10;
+                    this.log(`路过自己的金矿，收益 +${income}G`);
+                    player.gold += income;
+                    this.createFloatingText(`+${income}G`, slot.mesh.position, "#eccc68");
+                } else if (slot.type === 'HEAL') {
+                    const heal = 14 + slot.level * 12 + slot.guards.length * 4;
+                    const before = player.hp;
+                    player.hp = Math.min(player.maxHp, player.hp + heal);
+                    const actual = player.hp - before;
+                    this.log(`治疗营地恢复 ${actual} HP。`);
+                    this.createFloatingText(`+${actual}HP`, player.meshGroup.position, "#2ed573");
+                } else if (slot.type === 'TRAINING') {
+                    const atkGain = 1 + Math.floor(slot.level / 2);
+                    player.atk += atkGain;
+                    this.log(`训练营鼓舞士气，ATK +${atkGain}。`);
+                    this.createFloatingText(`ATK +${atkGain}`, player.meshGroup.position, "#ffb142");
+                }
+                await this.wait(260);
             },
 
             async triggerTrap(slot, player) {
@@ -1208,8 +1236,8 @@
                     setTimeout(() => {
                         this.stopSlotHighlightOnly();
                         const emptySlot = slots.find(s => s.type === 'EMPTY' && !s.monster);
-                        if (emptySlot && player.gold >= 100) {
-                            const types = ['TRAP', 'GUARD', 'INCOME'];
+                        const types = Object.keys(this.facilityConfigs).filter(type => player.gold >= this.facilityConfigs[type].cost);
+                        if (emptySlot && types.length > 0) {
                             this.selectedSlot = emptySlot;
                             this.buildFacility(types[Math.floor(Math.random()*types.length)]);
                         } else {
@@ -1810,6 +1838,8 @@
                     if(type === 'TRAP') { fColor = config.color; geom = new THREE.CylinderGeometry(0.5, 0.8, 0.5, 8); }
                     if(type === 'GUARD') { fColor = config.color; geom = new THREE.BoxGeometry(0.8, 1.2, 0.8); }
                     if(type === 'INCOME') { fColor = config.color; geom = new THREE.OctahedronGeometry(0.6); }
+                    if(type === 'HEAL') { fColor = config.color; geom = new THREE.CylinderGeometry(0.7, 0.7, 0.42, 16); }
+                    if(type === 'TRAINING') { fColor = config.color; geom = new THREE.ConeGeometry(0.72, 1.05, 4); }
 
                     const mesh = new THREE.Mesh(geom, new THREE.MeshToonMaterial({color: fColor}));
                     
