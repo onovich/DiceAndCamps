@@ -410,6 +410,7 @@
             cameraMode: CameraMode.FOLLOW,
             cameraReturnTween: null,
             slotHighlightTweens: [],
+            tileFloatTweens: [],
             battleContext: null,
             battleCommandResolver: null,
             battleFloor: null,
@@ -579,6 +580,7 @@
                     const { x, z } = def;
                     const nodeMesh = this.createToonBox(1.8, 0.5, 1.8, 0x7bed9f);
                     nodeMesh.userData.baseY = 0;
+                    nodeMesh.userData.floatingTile = true;
                     nodeMesh.position.set(x, -8, z);
                     this.scene.add(nodeMesh);
 
@@ -655,9 +657,34 @@
                         .easing(TWEEN.Easing.Elastic.Out)
                         .onComplete(() => {
                             if (mesh.userData.startFloatAfterIntro) mesh.userData.startFloatAfterIntro();
+                            if (mesh.userData.floatingTile) this.startTileFloat(mesh, index);
                         })
                         .start();
                 });
+            },
+
+            startTileFloat(mesh, index = 0) {
+                if (!mesh || !mesh.userData.floatingTile || mesh.userData.floatTween) return;
+                const baseY = mesh.userData.baseY ?? mesh.position.y;
+                mesh.position.y = baseY;
+                const amplitude = mesh.userData.floatAmplitude ?? 0.07;
+                const tween = new TWEEN.Tween(mesh.position)
+                    .to({ y: baseY + amplitude }, 950 + (index % 5) * 70)
+                    .delay((index % 7) * 45)
+                    .yoyo(true)
+                    .repeat(Infinity)
+                    .easing(TWEEN.Easing.Sinusoidal.InOut)
+                    .start();
+                mesh.userData.floatTween = tween;
+                this.tileFloatTweens.push(tween);
+            },
+
+            stopTileFloat(mesh) {
+                if (!mesh?.userData?.floatTween) return;
+                mesh.userData.floatTween.stop();
+                this.tileFloatTweens = this.tileFloatTweens.filter(tween => tween !== mesh.userData.floatTween);
+                mesh.userData.floatTween = null;
+                mesh.position.y = mesh.userData.baseY ?? mesh.position.y;
             },
 
             createSlot(node, x, z) {
@@ -672,6 +699,8 @@
 
                 const slotMesh = this.createToonBox(1.6, 0.4, 1.6, 0xdfe4ea);
                 slotMesh.userData.baseY = 0.05;
+                slotMesh.userData.floatingTile = true;
+                slotMesh.userData.floatAmplitude = 0.055;
                 slotMesh.position.set(x, -8, z);
                 this.scene.add(slotMesh);
 
@@ -830,13 +859,16 @@
 
             bounceNode(node) {
                 if (!node || !node.mesh) return;
+                this.stopTileFloat(node.mesh);
+                const baseY = node.mesh.userData.baseY ?? 0;
                 new TWEEN.Tween(node.mesh.position)
-                    .to({ y: -0.18 }, 90)
+                    .to({ y: baseY - 0.18 }, 90)
                     .easing(TWEEN.Easing.Quadratic.In)
                     .onComplete(() => {
                         new TWEEN.Tween(node.mesh.position)
-                            .to({ y: 0 }, 420)
+                            .to({ y: baseY }, 420)
                             .easing(TWEEN.Easing.Elastic.Out)
+                            .onComplete(() => this.startTileFloat(node.mesh, node.id))
                             .start();
                     })
                     .start();
@@ -1508,6 +1540,7 @@
 
                 // 阶段一：地块高亮跳动
                 slots.forEach(s => {
+                    this.stopTileFloat(s.mesh);
                     const highlightTween = new TWEEN.Tween(s.mesh.position).to({y: 0.2}, 400).yoyo(true).repeat(Infinity).start();
                     this.slotHighlightTweens.push(highlightTween);
                     s.mesh.material.color.setHex(0xffffff); // 高亮
@@ -1537,8 +1570,9 @@
                 this.slotHighlightTweens = [];
                 if (!this.activeNode) return;
                 this.activeNode.slots.forEach(s => {
-                    s.mesh.position.y = 0.05;
+                    s.mesh.position.y = s.mesh.userData.baseY ?? 0.05;
                     s.mesh.material.color.setHex(0xdfe4ea);
+                    this.startTileFloat(s.mesh, this.slots.indexOf(s));
                 });
             },
 
@@ -1737,6 +1771,7 @@
                 const floor = this.createBattleFloor();
 
                 this.battleSnapshot.mapObjects.forEach(({ mesh, index, position }) => {
+                    this.stopTileFloat(mesh);
                     new TWEEN.Tween(mesh.position)
                         .to({ y: position.y - 10 }, 420)
                         .delay(index * 14)
@@ -1811,6 +1846,9 @@
                         .to({ x: position.x, y: position.y, z: position.z }, 440)
                         .delay(index * 10)
                         .easing(TWEEN.Easing.Back.Out)
+                        .onComplete(() => {
+                            if (mesh.userData.floatingTile) this.startTileFloat(mesh, index);
+                        })
                         .start();
                 });
                 snapshot.bystanders.forEach(({ mesh, position, rotation, scale, visible, index }) => {

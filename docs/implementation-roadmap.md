@@ -87,6 +87,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added player branch-choice UI during movement when dice steps remain.
 - Added an optional wizard dead-end node with gold/HP-for-card trades.
 - Added a minimal deck-combat foundation: starter decks, shuffle/draw/discard, and card actions in battle.
+- Added continuous idle floating for road and land tiles with pause/resume around bounce, action highlights, and battle transitions.
 
 ## Validation Gates
 
