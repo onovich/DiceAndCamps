@@ -76,6 +76,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added command-level camera focus changes for attack, skill, defend, flee, and counterattacks.
 - Added enemy passive events for income, healing, training, and guarded non-guard buildings.
 - Added faster defense scaling for facilities that cannot host guards.
+- Strengthened dice render layering so characters cannot depth-occlude the roll result.
 
 ## Validation Gates
 

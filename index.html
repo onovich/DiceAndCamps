@@ -960,14 +960,20 @@
 
                 // 3D 实体骰子特效
                 const materials = [];
-                for(let i=1; i<=6; i++) materials.push(new THREE.MeshBasicMaterial({map: createDiceTexture(i)}));
+                for(let i=1; i<=6; i++) {
+                    materials.push(new THREE.MeshBasicMaterial({
+                        map: createDiceTexture(i),
+                        depthTest: false,
+                        depthWrite: false
+                    }));
+                }
                 const diceGeom = new THREE.BoxGeometry(1.5, 1.5, 1.5);
                 const dice = new THREE.Mesh(diceGeom, materials);
                 
                 dice.position.copy(p.meshGroup.position);
                 dice.position.y += 0.9;
                 dice.scale.set(0.45, 0.45, 0.45);
-                dice.renderOrder = 50;
+                dice.renderOrder = 1000;
                 this.scene.add(dice);
 
                 const result = Math.floor(Math.random() * 6) + 1;
