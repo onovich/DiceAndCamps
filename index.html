@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D魔幻RPG大富翁</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none; /* 禁用默认的下拉刷新和双指缩放 */
+            user-select: none;
+        }
+        #game-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        /* 界面UI */
+        .ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+        }
+        
+        .panel {
+            background: rgba(255, 255, 255, 0.9);
+            border: 4px solid #333;
+            border-radius: 12px;
+            padding: 15px;
+            pointer-events: auto;
+            box-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+        }
+
+        #stats-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            min-width: 200px;
+        }
+        .stat-line { margin: 5px 0; font-weight: bold; color: #333; }
+        .bar-bg { width: 100%; height: 15px; background: #ddd; border-radius: 8px; overflow: hidden; border: 2px solid #555; }
+        .bar-fill { height: 100%; transition: width 0.3s; }
+        .bar-hp { background: #ff4757; }
+        .bar-exp { background: #1e90ff; }
+
+        #action-panel {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+        }
+
+        .btn {
+            background: #ff7f50;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            padding: 15px 40px;
+            border: 4px solid #333;
+            border-radius: 12px;
+            cursor: pointer;
+            text-transform: uppercase;
+            box-shadow: 0 6px 0 #cc4e20, 0 8px 10px rgba(0,0,0,0.3);
+            transition: all 0.1s;
+            pointer-events: auto;
+        }
+        .btn:active {
+            transform: translateY(6px);
+            box-shadow: 0 0 0 #cc4e20, 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .btn:disabled {
+            background: #ccc;
+            box-shadow: 0 6px 0 #999;
+            cursor: not-allowed;
+            color: #666;
+        }
+
+        #build-menu {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+            text-align: center;
+        }
+        .build-options { display: flex; gap: 10px; margin-top: 15px; }
+        .build-btn { padding: 10px; border: 2px solid #333; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .build-btn.trap { background: #a55eea; color: white; }
+        .build-btn.guard { background: #ff4757; color: white; }
+        .build-btn.income { background: #eccc68; color: #333; }
+        .build-btn.cancel { background: #ced6e0; color: #333; }
+
+        #msg-log {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 250px;
+            max-height: 200px;
+            overflow-y: hidden;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 14px;
+            pointer-events: none;
+        }
+        .log-entry { margin-bottom: 5px; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+        /* 全屏红闪 (受伤特效) */
+        #damage-flash {
+            position: absolute; top:0; left:0; width:100%; height:100%;
+            background: red; opacity: 0; pointer-events: none; transition: opacity 0.1s;
+        }
+    </style>
+</head>
+<body>
+    <div id="damage-flash"></div>
+    <canvas id="game-canvas"></canvas>
+    
+    <div class="ui-layer">
+        <div id="stats-panel" class="panel">
+            <h2 id="char-name" style="margin-top:0; color:#2ed573;">玩家回合</h2>
+            <div class="stat-line">LV: <span id="char-lv">1</span> | ATK: <span id="char-atk">10</span></div>
+            <div class="stat-line">金币: 🪙 <span id="char-gold" style="color:#ffa502;">100</span></div>
+            <div class="stat-line">HP: <span id="char-hp-txt">50/50</span></div>
+            <div class="bar-bg"><div id="char-hp-bar" class="bar-fill bar-hp" style="width: 100%;"></div></div>
+            <div class="stat-line">EXP:</div>
+            <div class="bar-bg"><div id="char-exp-bar" class="bar-fill bar-exp" style="width: 0%;"></div></div>
+        </div>
+
+        <div id="action-panel">
+            <button id="btn-roll" class="btn">掷骰子</button>
+            <button id="btn-end" class="btn" style="display:none; background:#7bed9f; box-shadow: 0 6px 0 #2ed573;">结束回合</button>
+        </div>
+
+        <div id="build-menu" class="panel">
+            <h3 style="margin-top:0;">建造地块操作</h3>
+            <p id="build-desc">选择要建造的设施：</p>
+            <div class="build-options">
+                <button class="build-btn trap" onclick="Game.buildFacility('TRAP')">陷阱 (50G)</button>
+                <button class="build-btn guard" onclick="Game.buildFacility('GUARD')">守卫 (80G)</button>
+                <button class="build-btn income" onclick="Game.buildFacility('INCOME')">金矿 (100G)</button>
+                <button class="build-btn cancel" onclick="Game.closeBuildMenu()">返回选择</button>
+            </div>
+        </div>
+
+        <div id="msg-log"></div>
+    </div>
+
+    <!-- 引入 Three.js 和 Tween.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+
+    <script>
+        // ------------------ 辅助函数：绘制骰子纹理 ------------------
+        function createDiceTexture(number) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 10;
+            ctx.strokeRect(0,0,256,256);
+            ctx.fillStyle = '#000';
+            const drawDot = (x, y) => {
+                ctx.beginPath();
+                ctx.arc(x, y, 25, 0, Math.PI * 2);
+                ctx.fill();
+            };
+            const c = 128, l = 64, r = 192;
+            if([1,3,5].includes(number)) drawDot(c, c);
+            if([2,3,4,5,6].includes(number)) { drawDot(l, l); drawDot(r, r); }
+            if([4,5,6].includes(number)) { drawDot(l, r); drawDot(r, l); }
+            if(number === 6) { drawDot(l, c); drawDot(r, c); }
+            if(number === 1) { ctx.fillStyle = '#ff4757'; drawDot(c,c); } // 一点红
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // ------------------ 游戏核心逻辑 ------------------
+        const Game = {
+            scene: null, camera: null, renderer: null,
+            players: [],
+            nodes: [], // 主路
+            slots: [], // 副地块
+            currentPlayerIndex: 0,
+            state: 'IDLE', // IDLE, MOVING, EVENT, BUILD
+            cameraOffset: new THREE.Vector3(0, 0, 0),
+            cameraTarget: new THREE.Vector3(0, 0, 0),
+            dragStartPos: {x:0, y:0},
+            isDragging: false,
+            raycaster: new THREE.Raycaster(),
+            mouse: new THREE.Vector2(),
+            activeNode: null, // 当前停留的节点
+            selectedSlot: null, // 当前选中的副地块
+
+            init() {
+                this.initEngine();
+                this.buildMap();
+                this.initPlayers();
+                this.initEvents();
+                this.updateUI();
+                this.log("游戏开始！玩家回合。");
+                this.animate();
+            },
+
+            initEngine() {
+                const canvas = document.getElementById('game-canvas');
+                this.scene = new THREE.Scene();
+                
+                // 正交相机设置
+                const aspect = window.innerWidth / window.innerHeight;
+                const frustumSize = 15;
+                this.camera = new THREE.OrthographicCamera(
+                    frustumSize * aspect / -2, frustumSize * aspect / 2,
+                    frustumSize / 2, frustumSize / -2, 1, 1000
+                );
+                // 经典的等距倾斜视角 (RTS/CRPG)
+                this.camera.position.set(20, 20, 20);
+                this.camera.lookAt(0, 0, 0);
+
+                this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                this.renderer.shadowMap.enabled = true;
+                
+                // 灯光：卡通渲染需要 DirectionalLight
+                const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+                dirLight.position.set(10, 20, 10);
+                dirLight.castShadow = true;
+                dirLight.shadow.camera.left = -15; dirLight.shadow.camera.right = 15;
+                dirLight.shadow.camera.top = 15; dirLight.shadow.camera.bottom = -15;
+                this.scene.add(dirLight);
+                
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+                this.scene.add(ambientLight);
+
+                window.addEventListener('resize', () => {
+                    const aspect = window.innerWidth / window.innerHeight;
+                    this.camera.left = -frustumSize * aspect / 2;
+                    this.camera.right = frustumSize * aspect / 2;
+                    this.camera.top = frustumSize / 2;
+                    this.camera.bottom = -frustumSize / 2;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            },
+
+            // 构建带有描边效果的立方体
+            createToonBox(w, h, d, color, hasOutline = true) {
+                const geom = new THREE.BoxGeometry(w, h, d);
+                const mat = new THREE.MeshToonMaterial({ color: color });
+                const mesh = new THREE.Mesh(geom, mat);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+
+                if (hasOutline) {
+                    const edges = new THREE.EdgesGeometry(geom);
+                    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 }));
+                    mesh.add(line);
+                }
+                return mesh;
+            },
+
+            buildMap() {
+                // 构建一个大回环地图
+                const pathCoords = [
+                    [0,0], [2,0], [4,0], [6,0], [8,0], [10,0],
+                    [10,2], [10,4], [10,6], [10,8],
+                    [8,8], [6,8], [4,8], [2,8], [0,8],
+                    [0,6], [0,4], [0,2]
+                ];
+
+                for (let i = 0; i < pathCoords.length; i++) {
+                    const [x, z] = pathCoords[i];
+                    const nodeMesh = this.createToonBox(1.8, 0.5, 1.8, 0x7bed9f);
+                    nodeMesh.position.set(x, 0, z);
+                    this.scene.add(nodeMesh);
+
+                    const node = {
+                        id: i,
+                        x: x, z: z,
+                        mesh: nodeMesh,
+                        next: (i + 1) % pathCoords.length,
+                        slots: []
+                    };
+                    this.nodes.push(node);
+
+                    // 为每个主路添加 1-2 个副地块 (Slot)
+                    this.createSlot(node, x, z - 2); // 上方副地块
+                    if (i % 3 === 0) this.createSlot(node, x, z + 2); // 偶尔下方也有
+                }
+            },
+
+            createSlot(node, x, z) {
+                // 检查是否与其他主路/副地块重叠 (简易判定)
+                const overlap = this.nodes.find(n => n.x === x && n.z === z);
+                if (overlap) return;
+
+                const slotMesh = this.createToonBox(1.6, 0.4, 1.6, 0xdfe4ea);
+                slotMesh.position.set(x, 0.05, z);
+                this.scene.add(slotMesh);
+
+                const slot = {
+                    node: node, x: x, z: z, mesh: slotMesh,
+                    type: 'EMPTY', // EMPTY, TRAP, GUARD, INCOME
+                    level: 1, owner: null, facilityMesh: null
+                };
+                node.slots.push(slot);
+                this.slots.push(slot);
+            },
+
+            initPlayers() {
+                const colors = [0x70a1ff, 0xff4757, 0xeccc68, 0xa55eea]; // 蓝(玩家), 红, 黄, 紫
+                const names = ["人类勇者", "兽人AI", "精灵AI", "亡灵AI"];
+
+                for (let i = 0; i < 4; i++) {
+                    // 角色模型：球体 + 挤压变形组
+                    const group = new THREE.Group();
+                    const geom = new THREE.SphereGeometry(0.6, 16, 16);
+                    const mat = new THREE.MeshToonMaterial({ color: colors[i] });
+                    const mesh = new THREE.Mesh(geom, mat);
+                    mesh.position.y = 0.6;
+                    mesh.castShadow = true;
+
+                    // 背面膨胀描边法 (BackSide Outline)
+                    const outlineMat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
+                    const outlineMesh = new THREE.Mesh(geom, outlineMat);
+                    outlineMesh.scale.set(1.15, 1.15, 1.15);
+                    mesh.add(outlineMesh);
+
+                    group.add(mesh);
+                    group.position.set(this.nodes[0].x, 0.25, this.nodes[0].z);
+                    this.scene.add(group);
+
+                    this.players.push({
+                        id: i, isPlayer: i === 0, name: names[i], color: colors[i],
+                        meshGroup: group, bodyMesh: mesh,
+                        nodeIndex: 0,
+                        hp: 50, maxHp: 50, atk: 10, gold: 200, exp: 0, level: 1
+                    });
+                }
+            },
+
+            initEvents() {
+                const canvas = document.getElementById('game-canvas');
+                document.getElementById('btn-roll').addEventListener('click', () => this.rollDice());
+                document.getElementById('btn-end').addEventListener('click', () => this.endTurn());
+
+                // 触控/鼠标事件用于拖拽相机和点击选择
+                canvas.addEventListener('pointerdown', (e) => {
+                    this.isDragging = false;
+                    this.dragStartPos = { x: e.clientX, y: e.clientY };
+                });
+                
+                canvas.addEventListener('pointermove', (e) => {
+                    if (e.buttons === 1) { // 左键或单指按下
+                        const dx = e.clientX - this.dragStartPos.x;
+                        const dy = e.clientY - this.dragStartPos.y;
+                        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) this.isDragging = true;
+                        
+                        // 等距视角下拖拽映射（简易版）
+                        this.cameraOffset.x -= (dx + dy) * 0.02;
+                        this.cameraOffset.z -= (dy - dx) * 0.02;
+                        
+                        this.dragStartPos = { x: e.clientX, y: e.clientY };
+                    }
+                });
+
+                canvas.addEventListener('pointerup', (e) => {
+                    if (!this.isDragging && this.state === 'BUILD') {
+                        // 处理点击射线检测
+                        this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                        this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+                        const intersects = this.raycaster.intersectObjects(this.slots.map(s => s.mesh));
+                        if (intersects.length > 0) {
+                            const clickedMesh = intersects[0].object;
+                            const slot = this.slots.find(s => s.mesh === clickedMesh);
+                            this.handleSlotClick(slot);
+                        }
+                    }
+                    this.isDragging = false;
+                });
+            },
+
+            log(msg) {
+                const logDiv = document.getElementById('msg-log');
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                entry.innerHTML = `> ${msg}`;
+                logDiv.appendChild(entry);
+                if (logDiv.children.length > 6) logDiv.removeChild(logDiv.firstChild);
+            },
+
+            updateUI() {
+                const p = this.players[this.currentPlayerIndex];
+                document.getElementById('char-name').innerText = p.name + (p.isPlayer ? " (你)" : "");
+                document.getElementById('char-name').style.color = '#' + p.color.toString(16).padStart(6, '0');
+                document.getElementById('char-lv').innerText = p.level;
+                document.getElementById('char-atk').innerText = p.atk;
+                document.getElementById('char-gold').innerText = p.gold;
+                document.getElementById('char-hp-txt').innerText = `${p.hp}/${p.maxHp}`;
+                document.getElementById('char-hp-bar').style.width = `${(p.hp/p.maxHp)*100}%`;
+                document.getElementById('char-exp-bar').style.width = `${(p.exp/100)*100}%`;
+
+                document.getElementById('btn-roll').style.display = (p.isPlayer && this.state === 'IDLE') ? 'block' : 'none';
+            },
+
+            // 掷骰子动画
+            rollDice() {
+                if (this.state !== 'IDLE') return;
+                this.state = 'MOVING';
+                document.getElementById('btn-roll').style.display = 'none';
+
+                const p = this.players[this.currentPlayerIndex];
+                this.cameraOffset.set(0,0,0); // 视角归位
+
+                // 3D 实体骰子特效
+                const materials = [];
+                for(let i=1; i<=6; i++) materials.push(new THREE.MeshBasicMaterial({map: createDiceTexture(i)}));
+                const diceGeom = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+                const dice = new THREE.Mesh(diceGeom, materials);
+                
+                dice.position.copy(p.meshGroup.position);
+                dice.position.y += 4;
+                this.scene.add(dice);
+
+                const result = Math.floor(Math.random() * 6) + 1;
+                this.log(`${p.name} 掷出了 ${result} 点！`);
+
+                // 随机翻滚动画
+                new TWEEN.Tween(dice.position)
+                    .to({ y: 6 }, 400).yoyo(true).repeat(1).easing(TWEEN.Easing.Quadratic.Out)
+                    .start();
+                
+                new TWEEN.Tween(dice.rotation)
+                    .to({ x: Math.PI*4, y: Math.PI*4, z: Math.PI*4 }, 800)
+                    .onComplete(() => {
+                        // 强制朝上面为骰出点数 (简易处理，直接设置最终面朝上)
+                        let targetRot = {x:0, y:0, z:0};
+                        if(result===1) targetRot = {x:0, y:Math.PI/2, z:0};
+                        dice.rotation.set(targetRot.x, targetRot.y, targetRot.z);
+                        
+                        setTimeout(() => {
+                            this.scene.remove(dice);
+                            this.moveCharacter(p, result);
+                        }, 500);
+                    })
+                    .start();
+            },
+
+            // 角色单步跳跃递归
+            moveCharacter(player, stepsLeft) {
+                if (stepsLeft <= 0) {
+                    this.handleLanding(player);
+                    return;
+                }
+
+                const currNode = this.nodes[player.nodeIndex];
+                const nextNodeIndex = currNode.next;
+                const nextNode = this.nodes[nextNodeIndex];
+                player.nodeIndex = nextNodeIndex;
+
+                // 物理挤压/拉伸跳跃 (Squash & Stretch)
+                const body = player.bodyMesh;
+                
+                // 起跳前微微下压
+                new TWEEN.Tween(body.scale).to({ x: 1.2, y: 0.8, z: 1.2 }, 100)
+                .onComplete(() => {
+                    // 空中拉伸
+                    new TWEEN.Tween(body.scale).to({ x: 0.9, y: 1.2, z: 0.9 }, 150).yoyo(true).repeat(1).start();
+                    
+                    // 位置抛物线
+                    const jumpTween = new TWEEN.Tween(player.meshGroup.position)
+                        .to({ x: nextNode.x, z: nextNode.z }, 300)
+                        .start();
+                    
+                    const heightTween = new TWEEN.Tween(player.meshGroup.position)
+                        .to({ y: 2.5 }, 150)
+                        .yoyo(true).repeat(1).easing(TWEEN.Easing.Quadratic.Out)
+                        .onComplete(() => {
+                            // 落地挤压恢复
+                            new TWEEN.Tween(body.scale).to({ x: 1.2, y: 0.8, z: 1.2 }, 100)
+                            .onComplete(() => {
+                                new TWEEN.Tween(body.scale).to({ x: 1, y: 1, z: 1 }, 100).start();
+                                // 继续下一步
+                                setTimeout(() => this.moveCharacter(player, stepsLeft - 1), 50);
+                            }).start();
+                        })
+                        .start();
+                }).start();
+            },
+
+            // 异步事件队列入口
+            async handleLanding(player) {
+                this.state = 'EVENT';
+                this.activeNode = this.nodes[player.nodeIndex];
+                const slots = this.activeNode.slots;
+
+                // 索敌转向: 面朝副地块
+                if (slots.length > 0) {
+                    const targetAngle = Math.atan2(slots[0].x - this.activeNode.x, slots[0].z - this.activeNode.z);
+                    new TWEEN.Tween(player.meshGroup.rotation).to({ y: targetAngle }, 300).start();
+                }
+
+                // 严格按照：敌方被动陷阱 -> 敌方守卫强制战斗 -> 己方增益 -> 城建互动 的顺序
+                for (let slot of slots) {
+                    if (slot.owner && slot.owner !== player) {
+                        if (slot.type === 'TRAP') await this.triggerTrap(slot, player);
+                        if (player.hp <= 0) break;
+                        if (slot.type === 'GUARD') await this.triggerCombat(slot, player);
+                        if (player.hp <= 0) break;
+                    } else if (slot.owner === player && slot.type === 'INCOME') {
+                        this.log(`路过自己的金矿，收益 +50G`);
+                        player.gold += 50;
+                        this.createFloatingText("+50G", slot.mesh.position, "#eccc68");
+                    }
+                }
+
+                this.updateUI();
+
+                if (player.hp <= 0) {
+                    this.log(`${player.name} 阵亡！修养一回合。`);
+                    player.hp = player.maxHp; // 简单复活
+                    this.endTurn();
+                    return;
+                }
+
+                // 进入二段式建筑操作阶段
+                this.enterBuildPhase(player);
+            },
+
+            async triggerTrap(slot, player) {
+                return new Promise(resolve => {
+                    this.log(`踩中敌方陷阱！扣除 20% HP`);
+                    const dmg = Math.floor(player.maxHp * 0.2);
+                    player.hp = Math.max(1, player.hp - dmg);
+                    this.screenFlash();
+                    this.createFloatingText(`-${dmg}`, player.meshGroup.position, "#ff0000");
+                    setTimeout(resolve, 800);
+                });
+            },
+
+            async triggerCombat(slot, player) {
+                return new Promise(resolve => {
+                    this.log(`遭遇敌方守卫！进入战斗！`);
+                    // 镜头特写
+                    new TWEEN.Tween(this.camera.zoom).to({ value: 1.5 }, 500)
+                        .onUpdate(() => this.camera.updateProjectionMatrix()).start();
+
+                    let guardHp = 40;
+                    const combatLoop = setInterval(() => {
+                        // 玩家攻击
+                        guardHp -= player.atk;
+                        // 简易位移攻击动画
+                        new TWEEN.Tween(player.meshGroup.position)
+                            .to({ x: player.meshGroup.position.x + (slot.x - player.meshGroup.position.x)*0.3, 
+                                  z: player.meshGroup.position.z + (slot.z - player.meshGroup.position.z)*0.3 }, 100)
+                            .yoyo(true).repeat(1).start();
+
+                        if (guardHp <= 0) {
+                            clearInterval(combatLoop);
+                            this.log(`击败守卫！获得 100G 和 50EXP`);
+                            player.gold += 100;
+                            this.gainExp(player, 50);
+                            
+                            // 摧毁建筑
+                            this.scene.remove(slot.facilityMesh);
+                            slot.type = 'EMPTY'; slot.owner = null; slot.facilityMesh = null;
+                            
+                            // 镜头还原
+                            new TWEEN.Tween(this.camera.zoom).to({ value: 1 }, 500)
+                                .onUpdate(() => this.camera.updateProjectionMatrix()).start();
+                            resolve();
+                        } else {
+                            // 守卫反击
+                            const dmg = 5;
+                            player.hp -= dmg;
+                            this.screenFlash();
+                            this.createFloatingText(`-${dmg}`, player.meshGroup.position, "#ff0000");
+                            if (player.hp <= 0) {
+                                clearInterval(combatLoop);
+                                new TWEEN.Tween(this.camera.zoom).to({ value: 1 }, 500)
+                                    .onUpdate(() => this.camera.updateProjectionMatrix()).start();
+                                resolve();
+                            }
+                        }
+                        this.updateUI();
+                    }, 800);
+                });
+            },
+
+            gainExp(player, amount) {
+                player.exp += amount;
+                if (player.exp >= 100) {
+                    player.exp -= 100;
+                    player.level++;
+                    player.maxHp += 10;
+                    player.hp = player.maxHp;
+                    player.atk += 3;
+                    this.log(`升级了！Lv.${player.level} HP全满，攻击力提升！`);
+                    this.createFloatingText("LEVEL UP!", player.meshGroup.position, "#2ed573");
+                }
+            },
+
+            // 屏幕泛红震动
+            screenFlash() {
+                const flash = document.getElementById('damage-flash');
+                flash.style.opacity = '0.5';
+                setTimeout(() => flash.style.opacity = '0', 100);
+            },
+
+            createFloatingText(text, pos, color) {
+                // 用HTML DOM模拟飘字更简单且永远置顶
+                const div = document.createElement('div');
+                div.innerText = text;
+                div.style.position = 'absolute';
+                div.style.color = color;
+                div.style.fontWeight = 'bold';
+                div.style.fontSize = '24px';
+                div.style.textShadow = '2px 2px 0 #000';
+                div.style.pointerEvents = 'none';
+                document.body.appendChild(div);
+
+                // 将3D坐标转为2D屏幕坐标
+                const tempV = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
+                tempV.project(this.camera);
+                const x = (tempV.x * .5 + .5) * window.innerWidth;
+                const y = (tempV.y * -.5 + .5) * window.innerHeight;
+                
+                div.style.left = x + 'px';
+                div.style.top = y + 'px';
+
+                let opacity = 1;
+                let offsetY = 0;
+                const animateTxt = setInterval(() => {
+                    offsetY -= 2;
+                    opacity -= 0.02;
+                    div.style.transform = `translate(-50%, ${offsetY}px)`;
+                    div.style.opacity = opacity;
+                    if (opacity <= 0) {
+                        clearInterval(animateTxt);
+                        document.body.removeChild(div);
+                    }
+                }, 16);
+            },
+
+            enterBuildPhase(player) {
+                this.state = 'BUILD';
+                const slots = this.activeNode.slots;
+
+                // 阶段一：地块高亮跳动
+                slots.forEach(s => {
+                    new TWEEN.Tween(s.mesh.position).to({y: 0.2}, 400).yoyo(true).repeat(Infinity).start();
+                    s.mesh.material.color.setHex(0xffffff); // 高亮
+                });
+
+                if (player.isPlayer) {
+                    this.log("请点击闪烁的副地块进行互动/建造。");
+                    document.getElementById('btn-end').style.display = 'block';
+                } else {
+                    // AI 自动逻辑：随机选个空地造建筑
+                    setTimeout(() => {
+                        this.stopSlotHighlight();
+                        const emptySlot = slots.find(s => s.type === 'EMPTY');
+                        if (emptySlot && player.gold >= 100) {
+                            const types = ['TRAP', 'GUARD', 'INCOME'];
+                            this.selectedSlot = emptySlot;
+                            this.buildFacility(types[Math.floor(Math.random()*types.length)]);
+                        } else {
+                            this.endTurn();
+                        }
+                    }, 1000);
+                }
+            },
+
+            stopSlotHighlight() {
+                TWEEN.removeAll(); // 停止所有动画
+                this.activeNode.slots.forEach(s => {
+                    s.mesh.position.y = 0.05;
+                    s.mesh.material.color.setHex(0xdfe4ea); // 恢复颜色
+                });
+            },
+
+            handleSlotClick(slot) {
+                if (!this.activeNode.slots.includes(slot)) return;
+                
+                this.stopSlotHighlight();
+                this.selectedSlot = slot;
+
+                const player = this.players[this.currentPlayerIndex];
+                
+                // 阶段二：弹出菜单
+                if (slot.type === 'EMPTY') {
+                    document.getElementById('build-desc').innerText = "选择要建造的设施：";
+                    document.querySelector('.build-options').style.display = 'flex';
+                } else if (slot.owner === player) {
+                    document.getElementById('build-desc').innerText = "这是你的设施。是否花费 50G 升级？";
+                    // 这里可以实现升级逻辑，暂略，直接提示
+                    document.querySelector('.build-options').style.display = 'none';
+                    this.log("功能扩展预留：建筑升级");
+                } else {
+                    document.getElementById('build-desc').innerText = "这是敌方的设施，无法操作！";
+                    document.querySelector('.build-options').style.display = 'none';
+                }
+                
+                document.getElementById('build-menu').style.display = 'block';
+                document.getElementById('btn-end').style.display = 'none';
+            },
+
+            closeBuildMenu() {
+                document.getElementById('build-menu').style.display = 'none';
+                this.enterBuildPhase(this.players[this.currentPlayerIndex]); // 返回阶段一重新选
+            },
+
+            buildFacility(type) {
+                const costs = { 'TRAP': 50, 'GUARD': 80, 'INCOME': 100 };
+                const player = this.players[this.currentPlayerIndex];
+                const cost = costs[type];
+
+                if (player.gold >= cost) {
+                    player.gold -= cost;
+                    const slot = this.selectedSlot;
+                    slot.type = type;
+                    slot.owner = player;
+                    
+                    // 在地块上生成 3D 建筑模型
+                    let fColor = 0xffffff, geom = null;
+                    if(type === 'TRAP') { fColor = 0xa55eea; geom = new THREE.CylinderGeometry(0.5, 0.8, 0.5, 8); }
+                    if(type === 'GUARD') { fColor = 0xff4757; geom = new THREE.BoxGeometry(0.8, 1.2, 0.8); }
+                    if(type === 'INCOME') { fColor = 0xeccc68; geom = new THREE.OctahedronGeometry(0.6); }
+
+                    const mesh = new THREE.Mesh(geom, new THREE.MeshToonMaterial({color: fColor}));
+                    
+                    // 同样加上描边
+                    const outline = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({color:0x000, side:THREE.BackSide}));
+                    outline.scale.set(1.1, 1.1, 1.1);
+                    mesh.add(outline);
+
+                    mesh.position.set(slot.x, 0.6, slot.z);
+                    this.scene.add(mesh);
+                    slot.facilityMesh = mesh;
+
+                    this.log(`花费 ${cost}G 建造了 ${type}！`);
+                    
+                    // 特效：小跳一下
+                    new TWEEN.Tween(mesh.position).to({y: 1.5}, 200).yoyo(true).repeat(1).start();
+                } else {
+                    this.log("金币不足！");
+                }
+                
+                document.getElementById('build-menu').style.display = 'none';
+                this.updateUI();
+                this.endTurn();
+            },
+
+            endTurn() {
+                this.stopSlotHighlight();
+                document.getElementById('build-menu').style.display = 'none';
+                document.getElementById('btn-end').style.display = 'none';
+                
+                this.currentPlayerIndex = (this.currentPlayerIndex + 1) % 4;
+                this.updateUI();
+                
+                const nextPlayer = this.players[this.currentPlayerIndex];
+                this.state = 'IDLE';
+                
+                if (!nextPlayer.isPlayer) {
+                    this.log(`====== ${nextPlayer.name} 的回合 ======`);
+                    setTimeout(() => this.rollDice(), 1000); // AI 自动掷骰子
+                } else {
+                    this.log(`====== 你的回合 ======`);
+                    // 相机重置归位
+                    this.cameraOffset.set(0,0,0);
+                }
+            },
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                TWEEN.update();
+
+                // 相机阻尼跟随逻辑
+                const p = this.players[this.currentPlayerIndex];
+                if (p && p.meshGroup) {
+                    // 目标位置 = 当前角色位置 + 拖拽偏移量
+                    this.cameraTarget.set(
+                        p.meshGroup.position.x + this.cameraOffset.x,
+                        p.meshGroup.position.y,
+                        p.meshGroup.position.z + this.cameraOffset.z
+                    );
+                    
+                    // lerp 平滑插值 (阻尼感)
+                    const lerpFactor = this.isDragging ? 0.3 : 0.05; 
+                    
+                    // 计算相机 lookAt 中心点
+                    const currentCenter = new THREE.Vector3();
+                    // 为了简化，我们通过反推相机的相对位置来实现平滑
+                    currentCenter.x = this.camera.position.x - 20;
+                    currentCenter.z = this.camera.position.z - 20;
+                    
+                    currentCenter.lerp(this.cameraTarget, lerpFactor);
+                    
+                    this.camera.position.set(currentCenter.x + 20, 20, currentCenter.z + 20);
+                    this.camera.lookAt(currentCenter.x, 0, currentCenter.z);
+                }
+
+                // AI 角色的微弱呼吸动画
+                const time = Date.now() * 0.003;
+                this.players.forEach(player => {
+                    if(this.state !== 'MOVING' || player.id !== this.currentPlayerIndex) {
+                       player.bodyMesh.position.y = 0.6 + Math.sin(time + player.id)*0.05;
+                    }
+                });
+
+                this.renderer.render(this.scene, this.camera);
+            }
+        };
+
+        // 页面加载完成后启动
+        window.onload = () => {
+            Game.init();
+        };
+    </script>
+</body>
+</html>
