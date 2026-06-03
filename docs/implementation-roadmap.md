@@ -85,6 +85,8 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Rebuilt the route graph as an orthogonal main loop with reconnecting branches.
 - Added shared adjacent land tiles for L-corner roads to avoid duplicate/overlapping land.
 - Added player branch-choice UI during movement when dice steps remain.
+- Added an optional wizard dead-end node with gold/HP-for-card trades.
+- Added a minimal deck-combat foundation: starter decks, shuffle/draw/discard, and card actions in battle.
 
 ## Validation Gates
 

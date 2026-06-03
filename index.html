@@ -153,6 +153,37 @@
             transform: translateY(4px);
             box-shadow: none;
         }
+        .battle-card {
+            min-width: 112px;
+            max-width: 140px;
+            min-height: 118px;
+            padding: 10px;
+            border: 4px solid #111;
+            border-radius: 8px;
+            background: #fff8e8;
+            color: #111;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 5px 0 #111;
+            text-align: left;
+        }
+        .battle-card strong {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+        .battle-card span {
+            display: block;
+            font-size: 12px;
+            line-height: 1.25;
+        }
+        .battle-card.flee {
+            background: #ced6e0;
+        }
+        .battle-card:active {
+            transform: translateY(5px);
+            box-shadow: none;
+        }
         #taunt-layer {
             display: none;
             position: absolute;
@@ -222,6 +253,22 @@
             transform: translateY(4px);
             box-shadow: none;
         }
+        #wizard-menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+            text-align: center;
+            max-width: 420px;
+        }
+        #wizard-options {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 14px;
+            flex-wrap: wrap;
+        }
     </style>
 </head>
 <body>
@@ -265,6 +312,16 @@
         <div id="branch-menu" class="panel">
             <h3 style="margin:0;">选择岔路</h3>
             <div id="branch-options"></div>
+        </div>
+
+        <div id="wizard-menu" class="panel">
+            <h3 style="margin-top:0;">岔路巫师</h3>
+            <p id="wizard-desc">献上一点代价，换一张战斗卡。</p>
+            <div id="wizard-options">
+                <button class="build-btn training" onclick="Game.resolveWizardTrade('gold')">献上 60G</button>
+                <button class="build-btn heal" onclick="Game.resolveWizardTrade('hp')">献上 12HP</button>
+                <button class="build-btn cancel" onclick="Game.resolveWizardTrade('skip')">离开</button>
+            </div>
         </div>
 
         <div id="taunt-layer">
@@ -358,8 +415,17 @@
             battleFloor: null,
             battleSnapshot: null,
             battleCameraFocus: null,
+            battleHand: [],
+            wizardTradeResolver: null,
             actionConsumedThisTurn: false,
             maxFacilityLevel: 3,
+            cardLibrary: {
+                STRIKE: { name: '斩击', kind: 'attack', power: 8, text: '造成 ATK+8 伤害。' },
+                GUARD_UP: { name: '架盾', kind: 'defend', block: 9, text: '本回合大幅减伤。' },
+                FIREBALL: { name: '火球', kind: 'skill', power: 16, text: '造成 ATK+16 技能伤害。' },
+                RALLY: { name: '振奋', kind: 'buff', atk: 2, text: '永久 ATK +2。' },
+                MEND: { name: '治愈', kind: 'heal', heal: 16, text: '恢复 16HP。' }
+            },
             facilityConfigs: {
                 TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10, allowsGuards: false, guardSlots: 0 },
                 GUARD: { name: '守卫哨站', cost: 80, color: 0xff4757, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 1 },
@@ -501,11 +567,13 @@
                     { id: 36, x: -2, z: 2, next: 37 },
                     { id: 37, x: -2, z: 0, next: 38 },
                     { id: 38, x: -4, z: 0, next: 39 },
-                    { id: 39, x: -6, z: 0, next: 24 }
+                    { id: 39, x: -6, z: 0, next: 24 },
+                    { id: 40, x: -10, z: 0, next: 24, npc: 'WIZARD', deadEnd: true }
                 ];
                 nodeDefs[4].branches = [26];
                 nodeDefs[9].branches = [32];
                 nodeDefs[18].branches = [35];
+                nodeDefs[24].branches = [40];
 
                 nodeDefs.forEach((def, i) => {
                     const { x, z } = def;
@@ -524,9 +592,12 @@
                             ...(def.branches || []).map(target => ({ target, label: '岔路' }))
                         ],
                         isBranch: def.id >= 26,
+                        npc: def.npc || null,
+                        deadEnd: !!def.deadEnd,
                         slots: []
                     };
                     this.nodes.push(node);
+                    if (node.npc === 'WIZARD') this.createWizardMarker(node);
                 });
                 this.nodes.forEach(node => this.createAdjacentSlotsForNode(node));
 
@@ -550,10 +621,27 @@
                 });
             },
 
+            createWizardMarker(node) {
+                const group = new THREE.Group();
+                const hat = new THREE.Mesh(
+                    new THREE.ConeGeometry(0.55, 0.95, 6),
+                    new THREE.MeshToonMaterial({ color: 0xa55eea })
+                );
+                hat.position.y = 0.85;
+                const brim = this.createToonBox(0.9, 0.12, 0.9, 0x2f2147, false);
+                brim.position.y = 0.35;
+                group.add(hat, brim);
+                group.userData.baseY = 0.18;
+                group.position.set(node.x, -8, node.z);
+                this.scene.add(group);
+                node.npcMesh = group;
+            },
+
             getMapIntroObjects() {
                 return [
                     ...this.nodes.map(n => n.mesh),
                     ...this.slots.map(s => s.mesh),
+                    ...this.nodes.map(n => n.npcMesh).filter(Boolean),
                     ...this.monsters.map(m => m.meshGroup)
                 ].filter(Boolean);
             },
@@ -686,7 +774,10 @@
                         id: i, isPlayer: i === 0, name: names[i], color: colors[i],
                         meshGroup: group, bodyMesh: mesh,
                         nodeIndex: 0,
-                        hp: 50, maxHp: 50, atk: 10, gold: 200, exp: 0, level: 1
+                        hp: 50, maxHp: 50, atk: 10, gold: 200, exp: 0, level: 1,
+                        deck: ['STRIKE', 'STRIKE', 'STRIKE', 'GUARD_UP', 'GUARD_UP', 'FIREBALL'],
+                        drawPile: [],
+                        discardPile: []
                     });
                 }
                 this.reflowAllCharacterStances(false);
@@ -1167,6 +1258,10 @@
                 this.activeNode = this.nodes[player.nodeIndex];
                 const slots = this.activeNode.slots;
 
+                if (this.activeNode.npc === 'WIZARD') {
+                    await this.triggerWizardNode(player);
+                }
+
                 // 索敌转向: 面朝副地块
                 if (slots.length > 0) {
                     const targetAngle = Math.atan2(slots[0].x - this.activeNode.x, slots[0].z - this.activeNode.z);
@@ -1218,6 +1313,66 @@
                     this.createFloatingText(`ATK +${atkGain}`, player.meshGroup.position, "#ffb142");
                 }
                 await this.wait(260);
+            },
+
+            async triggerWizardNode(player) {
+                this.log(`${player.name} 来到岔路尽头的巫师摊位。`);
+                if (!player.isPlayer) {
+                    if (player.gold >= 60) {
+                        player.gold -= 60;
+                        this.grantRandomCard(player);
+                    } else if (player.hp > 20) {
+                        player.hp = Math.max(1, player.hp - 12);
+                        this.grantRandomCard(player);
+                    }
+                    this.updateUI();
+                    await this.wait(320);
+                    return;
+                }
+
+                document.getElementById('wizard-menu').style.display = 'block';
+                await new Promise(resolve => {
+                    this.wizardTradeResolver = resolve;
+                });
+                document.getElementById('wizard-menu').style.display = 'none';
+                this.wizardTradeResolver = null;
+                this.updateUI();
+                await this.wait(220);
+            },
+
+            resolveWizardTrade(choice) {
+                const player = this.players[this.currentPlayerIndex];
+                if (!this.wizardTradeResolver || !player) return;
+
+                if (choice === 'gold') {
+                    if (player.gold < 60) {
+                        this.log("金币不足，巫师摇了摇头。");
+                        return;
+                    }
+                    player.gold -= 60;
+                    this.grantRandomCard(player);
+                } else if (choice === 'hp') {
+                    if (player.hp <= 12) {
+                        this.log("生命太低，巫师拒绝收取代价。");
+                        return;
+                    }
+                    player.hp = Math.max(1, player.hp - 12);
+                    this.grantRandomCard(player);
+                } else {
+                    this.log("你离开了巫师摊位。");
+                }
+
+                const resolve = this.wizardTradeResolver;
+                resolve();
+            },
+
+            grantRandomCard(player) {
+                const pool = ['FIREBALL', 'RALLY', 'MEND', 'GUARD_UP'];
+                const cardId = pool[Math.floor(Math.random() * pool.length)];
+                player.deck.push(cardId);
+                const card = this.cardLibrary[cardId];
+                this.log(`${player.name} 获得卡牌《${card.name}》。`);
+                this.createFloatingText(`+${card.name}`, player.meshGroup.position, "#a55eea");
             },
 
             async triggerEnemyFacility(slot, player) {
@@ -1741,11 +1896,71 @@
                 resolve(command);
             },
 
-            waitForBattleCommand() {
-                document.getElementById('battle-ui').style.display = 'flex';
+            waitForBattleCommand(attacker) {
+                this.renderBattleCards(attacker);
                 return new Promise(resolve => {
                     this.battleCommandResolver = resolve;
                 });
+            },
+
+            prepareBattleDeck(player) {
+                player.drawPile = this.shuffleCards([...(player.deck || [])]);
+                player.discardPile = [];
+                this.battleHand = [];
+            },
+
+            shuffleCards(cards) {
+                const shuffled = [...cards];
+                for (let i = shuffled.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                }
+                return shuffled;
+            },
+
+            drawBattleCards(player, count = 3) {
+                const hand = [];
+                for (let i = 0; i < count; i++) {
+                    if (player.drawPile.length === 0) {
+                        player.drawPile = this.shuffleCards(player.discardPile);
+                        player.discardPile = [];
+                    }
+                    if (player.drawPile.length === 0) break;
+                    hand.push(player.drawPile.pop());
+                }
+                this.battleHand = hand;
+                return hand;
+            },
+
+            renderBattleCards(player) {
+                const battleUi = document.getElementById('battle-ui');
+                const hand = this.drawBattleCards(player, 3);
+                battleUi.innerHTML = '';
+                hand.forEach((cardId, index) => {
+                    const card = this.cardLibrary[cardId];
+                    const btn = document.createElement('button');
+                    btn.className = 'battle-card';
+                    btn.onclick = () => this.chooseBattleCard(index);
+                    btn.innerHTML = `<strong>${card.name}</strong><span>${card.text}</span>`;
+                    battleUi.appendChild(btn);
+                });
+
+                const fleeBtn = document.createElement('button');
+                fleeBtn.className = 'battle-card flee';
+                fleeBtn.onclick = () => this.chooseBattleCommand('flee');
+                fleeBtn.innerHTML = '<strong>撤退</strong><span>尝试脱离战斗。</span>';
+                battleUi.appendChild(fleeBtn);
+                battleUi.style.display = 'flex';
+            },
+
+            chooseBattleCard(index) {
+                if (!this.battleCommandResolver) return;
+                const cardId = this.battleHand[index];
+                if (!cardId) return;
+                const resolve = this.battleCommandResolver;
+                this.battleCommandResolver = null;
+                document.getElementById('battle-ui').style.display = 'none';
+                resolve({ type: 'card', cardId });
             },
 
             async chooseAutoBattleCommand(attacker, enemyState, kind, round) {
@@ -1843,6 +2058,7 @@
 
                 await this.enterBattleScene(attacker, enemy);
                 await this.showTauntSequence(attacker, enemy);
+                if (attacker.isPlayer) this.prepareBattleDeck(attacker);
                 const enemyMesh = enemy.meshGroup || (sourceSlot ? sourceSlot.mesh : null);
                 const enemyPos = enemyMesh ? enemyMesh.position : attacker.meshGroup.position;
 
@@ -1850,18 +2066,47 @@
                 for (let round = 1; round <= 8 && attacker.hp > 0 && enemyState.hp > 0; round++) {
                     this.log(`选择行动：${attacker.name} HP ${attacker.hp}/${attacker.maxHp}，${enemyState.name} HP ${Math.max(0, enemyState.hp)}/${enemyState.maxHp}`);
                     const command = attacker.isPlayer
-                        ? await this.waitForBattleCommand()
+                        ? await this.waitForBattleCommand(attacker)
                         : await this.chooseAutoBattleCommand(attacker, enemyState, kind, round);
+                    if (attacker.isPlayer && this.battleHand.length > 0) {
+                        attacker.discardPile.push(...this.battleHand);
+                        this.battleHand = [];
+                    }
                     let defend = false;
+                    let blockValue = 0;
                     let playerDmg = 0;
 
-                    if (command === 'flee') {
+                    if (command?.type === 'card') {
+                        const card = this.cardLibrary[command.cardId];
+                        this.log(`${attacker.name} 打出《${card.name}》。`);
+                        if (card.kind === 'attack') {
+                            playerDmg = Math.max(4, attacker.atk + card.power + Math.floor(Math.random() * 5));
+                            await this.focusBattleCamera(attacker.meshGroup, 1.62, 220);
+                        } else if (card.kind === 'skill') {
+                            playerDmg = Math.max(8, attacker.atk + card.power + Math.floor(Math.random() * 7));
+                            await this.focusBattleCamera(attacker.meshGroup, 1.86, 260);
+                        } else if (card.kind === 'defend') {
+                            defend = true;
+                            blockValue = card.block || 7;
+                            await this.focusBattleCamera(attacker.meshGroup, 1.58, 220);
+                        } else if (card.kind === 'heal') {
+                            const before = attacker.hp;
+                            attacker.hp = Math.min(attacker.maxHp, attacker.hp + card.heal);
+                            this.createFloatingText(`+${attacker.hp - before}HP`, attacker.meshGroup.position, "#2ed573");
+                            await this.focusBattleCamera(attacker.meshGroup, 1.5, 220);
+                        } else if (card.kind === 'buff') {
+                            attacker.atk += card.atk;
+                            this.createFloatingText(`ATK +${card.atk}`, attacker.meshGroup.position, "#ffb142");
+                            await this.focusBattleCamera(attacker.meshGroup, 1.5, 220);
+                        }
+                    } else if (command === 'flee') {
                         await this.focusBattleCamera(attacker.meshGroup, 1.45, 220);
                         fled = Math.random() < 0.55 || kind === 'monster';
                         this.log(fled ? "成功撤退！" : "撤退失败！");
                         if (fled) break;
                     } else if (command === 'defend') {
                         defend = true;
+                        blockValue = 7;
                         this.log(`${attacker.name} 摆出防御姿态。`);
                         await this.focusBattleCamera(attacker.meshGroup, 1.58, 220);
                     } else if (command === 'skill') {
@@ -1887,7 +2132,7 @@
 
                     if (enemyState.hp <= 0 || fled) break;
 
-                    const incoming = Math.max(1, enemyState.atk + Math.floor(Math.random() * 4) - (defend ? 7 : 0));
+                    const incoming = Math.max(1, enemyState.atk + Math.floor(Math.random() * 4) - (defend ? blockValue : 0));
                     await this.focusBattleCamera(enemyMesh || enemyPos, 1.58, 220);
                     attacker.hp -= incoming;
                     this.screenFlash();
@@ -2073,6 +2318,7 @@
                 this.setActionConsumed(false);
                 document.getElementById('build-menu').style.display = 'none';
                 document.getElementById('branch-menu').style.display = 'none';
+                document.getElementById('wizard-menu').style.display = 'none';
                 document.getElementById('btn-end').style.display = 'none';
                 
                 this.currentPlayerIndex = (this.currentPlayerIndex + 1) % 4;
