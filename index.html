@@ -400,8 +400,10 @@
             IDLE: 'IDLE',
             DICE: 'DICE',
             MOVING: 'MOVING',
+            BRANCH_CHOICE: 'BRANCH_CHOICE',
             OWNED_EVENTS: 'OWNED_EVENTS',
             ENEMY_EVENTS: 'ENEMY_EVENTS',
+            WIZARD_EVENT: 'WIZARD_EVENT',
             ACTION_SELECT: 'ACTION_SELECT',
             ACTION_MENU: 'ACTION_MENU',
             BATTLE: 'BATTLE',
@@ -913,6 +915,7 @@
             waitForBranchChoice(node, options) {
                 const menu = document.getElementById('branch-menu');
                 const optionBox = document.getElementById('branch-options');
+                this.transitionTo(TurnState.BRANCH_CHOICE);
                 optionBox.innerHTML = '';
                 menu.style.display = 'block';
 
@@ -928,6 +931,7 @@
                             if (option.target !== node.next) {
                                 this.log(`${this.players[this.currentPlayerIndex].name} 选择了岔路。`);
                             }
+                            this.transitionTo(TurnState.MOVING);
                             resolve(option.target);
                         };
                         optionBox.appendChild(btn);
@@ -1372,6 +1376,7 @@
             },
 
             async triggerWizardNode(player) {
+                this.transitionTo(TurnState.WIZARD_EVENT);
                 this.log(`${player.name} 来到岔路尽头的巫师摊位。`);
                 if (!player.isPlayer) {
                     if (player.gold >= 60) {
@@ -1383,6 +1388,7 @@
                     }
                     this.updateUI();
                     await this.wait(320);
+                    this.transitionTo(TurnState.OWNED_EVENTS);
                     return;
                 }
 
@@ -1394,6 +1400,7 @@
                 this.wizardTradeResolver = null;
                 this.updateUI();
                 await this.wait(220);
+                this.transitionTo(TurnState.OWNED_EVENTS);
             },
 
             resolveWizardTrade(choice) {

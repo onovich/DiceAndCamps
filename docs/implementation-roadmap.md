@@ -89,6 +89,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added a minimal deck-combat foundation: starter decks, shuffle/draw/discard, and card actions in battle.
 - Added continuous idle floating for road and land tiles with pause/resume around bounce, action highlights, and battle transitions.
 - Added battle deck HUD counters and card kind labels for the deck-combat UI.
+- Added explicit branch-choice and wizard-event states to keep new map/NPC flows out of generic moving/event states.
 
 ## Validation Gates
 
