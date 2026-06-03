@@ -18,6 +18,10 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 12. Turn-based JRPG combat: attack, skill, defend, flee choices with camera-enhanced presentation.
 13. Battle result presentation: bold victory/defeat UI, cheering and discouraged character animations, and celebratory particles for winners.
 14. Larger map: loop layout with branches.
+14a. Orthogonal map constraint: all road nodes must align on a grid and connect only forward/back/left/right, with no diagonal or staggered adjacency.
+14b. Branch choice: when a moving player reaches a fork before spending all dice steps, pause movement and let the player choose a direction.
+14c. Shared adjacent land: L-corner road nodes may share the same adjacent land tile instead of creating overlapping duplicate land.
+14d. Future special dead ends: only rare optional NPC nodes, such as a wizard trade node, may be dead ends. This can later connect to a minimal Slay-the-Spire-inspired deck-building combat layer.
 15. Floating map tiles: road/land tiles hover; landing characters depress the road tile and it springs back.
 16. Staggered map appear/disappear: map tiles should transition with offset timing.
 17. Building content expansion: prioritize guard recruitment/assignment and combat impact; design additional owned/enemy building functions for later batches.
@@ -78,6 +82,9 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added faster defense scaling for facilities that cannot host guards.
 - Strengthened dice render layering so characters cannot depth-occlude the roll result.
 - Added battle snapshot, exit, and restore handling for noncombat characters.
+- Rebuilt the route graph as an orthogonal main loop with reconnecting branches.
+- Added shared adjacent land tiles for L-corner roads to avoid duplicate/overlapping land.
+- Added player branch-choice UI during movement when dice steps remain.
 
 ## Validation Gates
 

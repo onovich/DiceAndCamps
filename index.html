@@ -192,6 +192,36 @@
             box-shadow: 10px 10px 0 rgba(0,0,0,0.32);
             pointer-events: none;
         }
+
+        #branch-menu {
+            position: absolute;
+            left: 50%;
+            bottom: 118px;
+            transform: translateX(-50%);
+            display: none;
+            text-align: center;
+        }
+        #branch-options {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 10px;
+        }
+        .branch-btn {
+            min-width: 82px;
+            padding: 10px 14px;
+            border: 3px solid #111;
+            border-radius: 8px;
+            background: #f7f1e3;
+            color: #111;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 4px 0 #111;
+        }
+        .branch-btn:active {
+            transform: translateY(4px);
+            box-shadow: none;
+        }
     </style>
 </head>
 <body>
@@ -230,6 +260,11 @@
                 <button id="btn-challenge-facility" class="build-btn challenge" onclick="Game.challengeSelectedFacility()">挑战建筑</button>
                 <button class="build-btn cancel" onclick="Game.closeBuildMenu()">返回选择</button>
             </div>
+        </div>
+
+        <div id="branch-menu" class="panel">
+            <h3 style="margin:0;">选择岔路</h3>
+            <div id="branch-options"></div>
         </div>
 
         <div id="taunt-layer">
@@ -439,36 +474,38 @@
             },
 
             buildMap() {
-                // 构建一个更大的回环地图，并预留几条岔路再回接主环。
+                // 构建规则正交网格：主干道是大回环，岔路只沿上下左右行走并最终回接。
                 const nodeDefs = [
                     ...[
-                        [-2,0], [0,0], [2,0], [4,0], [6,0], [8,0], [10,0], [12,1],
-                        [14,3], [14,5], [13,7], [11,9], [9,10], [7,10], [5,9], [3,10],
-                        [1,9], [-1,8], [-3,6], [-4,4], [-4,2], [-3,0], [-2,-2], [0,-3],
-                        [3,-3], [6,-2], [9,-2], [11,-1]
+                        [-8,-4], [-6,-4], [-4,-4], [-2,-4], [0,-4], [2,-4], [4,-4], [6,-4], [8,-4],
+                        [8,-2], [8,0], [8,2], [8,4], [8,6],
+                        [6,6], [4,6], [2,6], [0,6], [-2,6], [-4,6], [-6,6], [-8,6],
+                        [-8,4], [-8,2], [-8,0], [-8,-2]
                     ].map(([x, z], i, arr) => ({
                         id: i,
                         x,
                         z,
                         next: (i + 1) % arr.length,
-                        branchTo: null,
-                        branchWeight: 0
+                        branches: []
                     })),
-                    { id: 28, x: 6, z: 2, next: 29 },
-                    { id: 29, x: 7, z: 4, next: 30 },
-                    { id: 30, x: 6, z: 6, next: 14 },
-                    { id: 31, x: 10, z: 3, next: 32 },
-                    { id: 32, x: 9, z: 5, next: 33 },
-                    { id: 33, x: 11, z: 7, next: 11 },
-                    { id: 34, x: 1, z: 5, next: 35 },
-                    { id: 35, x: 2, z: 7, next: 16 }
+                    { id: 26, x: 0, z: -2, next: 27 },
+                    { id: 27, x: 0, z: 0, next: 28 },
+                    { id: 28, x: 0, z: 2, next: 29 },
+                    { id: 29, x: 2, z: 2, next: 30 },
+                    { id: 30, x: 4, z: 2, next: 31 },
+                    { id: 31, x: 6, z: 2, next: 11 },
+                    { id: 32, x: 6, z: -2, next: 33 },
+                    { id: 33, x: 4, z: -2, next: 34 },
+                    { id: 34, x: 2, z: -2, next: 26 },
+                    { id: 35, x: -2, z: 4, next: 36 },
+                    { id: 36, x: -2, z: 2, next: 37 },
+                    { id: 37, x: -2, z: 0, next: 38 },
+                    { id: 38, x: -4, z: 0, next: 39 },
+                    { id: 39, x: -6, z: 0, next: 24 }
                 ];
-                nodeDefs[4].branchTo = 28;
-                nodeDefs[4].branchWeight = 0.55;
-                nodeDefs[7].branchTo = 31;
-                nodeDefs[7].branchWeight = 0.45;
-                nodeDefs[18].branchTo = 34;
-                nodeDefs[18].branchWeight = 0.5;
+                nodeDefs[4].branches = [26];
+                nodeDefs[9].branches = [32];
+                nodeDefs[18].branches = [35];
 
                 nodeDefs.forEach((def, i) => {
                     const { x, z } = def;
@@ -482,21 +519,35 @@
                         x: x, z: z,
                         mesh: nodeMesh,
                         next: def.next,
-                        nextOptions: def.branchTo !== null
-                            ? [{ target: def.next, weight: 1 - def.branchWeight }, { target: def.branchTo, weight: def.branchWeight }]
-                            : [{ target: def.next, weight: 1 }],
-                        isBranch: def.id >= 28,
+                        nextOptions: [
+                            { target: def.next, label: '主路' },
+                            ...(def.branches || []).map(target => ({ target, label: '岔路' }))
+                        ],
+                        isBranch: def.id >= 26,
                         slots: []
                     };
                     this.nodes.push(node);
-
-                    // 为每个主路添加 1-2 个副地块 (Slot)
-                    const slotDir = i % 2 === 0 ? -2 : 2;
-                    this.createSlot(node, x, z + slotDir);
-                    if (i % 3 === 0) this.createSlot(node, x, z + 2); // 偶尔下方也有
                 });
+                this.nodes.forEach(node => this.createAdjacentSlotsForNode(node));
 
                 this.animateMapIntro();
+            },
+
+            createAdjacentSlotsForNode(node) {
+                const spacing = 2;
+                const roadPositions = new Set(this.nodes.map(n => `${n.x},${n.z}`));
+                const directions = [
+                    { dx: 0, dz: -spacing },
+                    { dx: spacing, dz: 0 },
+                    { dx: 0, dz: spacing },
+                    { dx: -spacing, dz: 0 }
+                ];
+
+                directions.forEach(({ dx, dz }) => {
+                    const x = node.x + dx;
+                    const z = node.z + dz;
+                    if (!roadPositions.has(`${x},${z}`)) this.createSlot(node, x, z);
+                });
             },
 
             getMapIntroObjects() {
@@ -526,7 +577,10 @@
                 const overlap = this.nodes.find(n => n.x === x && n.z === z);
                 if (overlap) return;
                 const slotOverlap = this.slots.find(s => s.x === x && s.z === z);
-                if (slotOverlap) return;
+                if (slotOverlap) {
+                    if (!node.slots.includes(slotOverlap)) node.slots.push(slotOverlap);
+                    return slotOverlap;
+                }
 
                 const slotMesh = this.createToonBox(1.6, 0.4, 1.6, 0xdfe4ea);
                 slotMesh.userData.baseY = 0.05;
@@ -548,6 +602,7 @@
                 node.slots.push(slot);
                 this.slots.push(slot);
                 if (node.id % 5 === 2) this.spawnMonsterOnSlot(slot);
+                return slot;
             },
 
             spawnMonsterOnSlot(slot) {
@@ -696,20 +751,49 @@
                     .start();
             },
 
-            chooseNextNodeIndex(node, player) {
+            async chooseNextNodeIndex(node, player) {
                 const options = node.nextOptions || [{ target: node.next, weight: 1 }];
                 if (options.length === 1) return options[0].target;
-                let roll = Math.random();
-                for (const option of options) {
-                    roll -= option.weight;
-                    if (roll <= 0) {
-                        if (option.target !== node.next) {
-                            this.log(`${player.name} 发现岔路，走向了另一条浮空小径。`);
-                        }
-                        return option.target;
-                    }
+                if (player.isPlayer) return await this.waitForBranchChoice(node, options);
+
+                const choice = options[Math.floor(Math.random() * options.length)];
+                if (choice.target !== node.next) {
+                    this.log(`${player.name} 发现岔路，走向了另一条浮空小径。`);
                 }
-                return options[0].target;
+                return choice.target;
+            },
+
+            waitForBranchChoice(node, options) {
+                const menu = document.getElementById('branch-menu');
+                const optionBox = document.getElementById('branch-options');
+                optionBox.innerHTML = '';
+                menu.style.display = 'block';
+
+                return new Promise(resolve => {
+                    options.forEach(option => {
+                        const target = this.nodes[option.target];
+                        const btn = document.createElement('button');
+                        btn.className = 'branch-btn';
+                        btn.innerText = this.getBranchDirectionLabel(node, target, option.label);
+                        btn.onclick = () => {
+                            menu.style.display = 'none';
+                            optionBox.innerHTML = '';
+                            if (option.target !== node.next) {
+                                this.log(`${this.players[this.currentPlayerIndex].name} 选择了岔路。`);
+                            }
+                            resolve(option.target);
+                        };
+                        optionBox.appendChild(btn);
+                    });
+                });
+            },
+
+            getBranchDirectionLabel(fromNode, targetNode, fallback = '道路') {
+                const dx = targetNode.x - fromNode.x;
+                const dz = targetNode.z - fromNode.z;
+                if (Math.abs(dx) > Math.abs(dz)) return dx > 0 ? `${fallback} 向右` : `${fallback} 向左`;
+                if (dz !== 0) return dz > 0 ? `${fallback} 向后` : `${fallback} 向前`;
+                return fallback;
             },
 
             getOrderedLandingEventSlots(slots, player) {
@@ -1026,16 +1110,16 @@
             },
 
             // 角色单步跳跃递归
-            moveCharacter(player, stepsLeft) {
+            async moveCharacter(player, stepsLeft) {
                 if (stepsLeft <= 0) {
                     this.reflowNodeOccupants(player.nodeIndex, true);
-                    this.handleLanding(player);
+                    await this.handleLanding(player);
                     return;
                 }
 
                 const currNode = this.nodes[player.nodeIndex];
                 const oldNodeIndex = player.nodeIndex;
-                const nextNodeIndex = this.chooseNextNodeIndex(currNode, player);
+                const nextNodeIndex = await this.chooseNextNodeIndex(currNode, player);
                 const nextNode = this.nodes[nextNodeIndex];
                 player.nodeIndex = nextNodeIndex;
                 const nextOccupants = this.getPlayersOnNode(nextNodeIndex);
@@ -1988,6 +2072,7 @@
                 this.stopSlotHighlightOnly();
                 this.setActionConsumed(false);
                 document.getElementById('build-menu').style.display = 'none';
+                document.getElementById('branch-menu').style.display = 'none';
                 document.getElementById('btn-end').style.display = 'none';
                 
                 this.currentPlayerIndex = (this.currentPlayerIndex + 1) % 4;
