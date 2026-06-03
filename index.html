@@ -429,42 +429,98 @@
             },
 
             buildMap() {
-                // 构建一个大回环地图
-                const pathCoords = [
-                    [0,0], [2,0], [4,0], [6,0], [8,0], [10,0],
-                    [10,2], [10,4], [10,6], [10,8],
-                    [8,8], [6,8], [4,8], [2,8], [0,8],
-                    [0,6], [0,4], [0,2]
+                // 构建一个更大的回环地图，并预留几条岔路再回接主环。
+                const nodeDefs = [
+                    ...[
+                        [-2,0], [0,0], [2,0], [4,0], [6,0], [8,0], [10,0], [12,1],
+                        [14,3], [14,5], [13,7], [11,9], [9,10], [7,10], [5,9], [3,10],
+                        [1,9], [-1,8], [-3,6], [-4,4], [-4,2], [-3,0], [-2,-2], [0,-3],
+                        [3,-3], [6,-2], [9,-2], [11,-1]
+                    ].map(([x, z], i, arr) => ({
+                        id: i,
+                        x,
+                        z,
+                        next: (i + 1) % arr.length,
+                        branchTo: null,
+                        branchWeight: 0
+                    })),
+                    { id: 28, x: 6, z: 2, next: 29 },
+                    { id: 29, x: 7, z: 4, next: 30 },
+                    { id: 30, x: 6, z: 6, next: 14 },
+                    { id: 31, x: 10, z: 3, next: 32 },
+                    { id: 32, x: 9, z: 5, next: 33 },
+                    { id: 33, x: 11, z: 7, next: 11 },
+                    { id: 34, x: 1, z: 5, next: 35 },
+                    { id: 35, x: 2, z: 7, next: 16 }
                 ];
+                nodeDefs[4].branchTo = 28;
+                nodeDefs[4].branchWeight = 0.55;
+                nodeDefs[7].branchTo = 31;
+                nodeDefs[7].branchWeight = 0.45;
+                nodeDefs[18].branchTo = 34;
+                nodeDefs[18].branchWeight = 0.5;
 
-                for (let i = 0; i < pathCoords.length; i++) {
-                    const [x, z] = pathCoords[i];
+                nodeDefs.forEach((def, i) => {
+                    const { x, z } = def;
                     const nodeMesh = this.createToonBox(1.8, 0.5, 1.8, 0x7bed9f);
-                    nodeMesh.position.set(x, 0, z);
+                    nodeMesh.userData.baseY = 0;
+                    nodeMesh.position.set(x, -8, z);
                     this.scene.add(nodeMesh);
 
                     const node = {
-                        id: i,
+                        id: def.id,
                         x: x, z: z,
                         mesh: nodeMesh,
-                        next: (i + 1) % pathCoords.length,
+                        next: def.next,
+                        nextOptions: def.branchTo !== null
+                            ? [{ target: def.next, weight: 1 - def.branchWeight }, { target: def.branchTo, weight: def.branchWeight }]
+                            : [{ target: def.next, weight: 1 }],
+                        isBranch: def.id >= 28,
                         slots: []
                     };
                     this.nodes.push(node);
 
                     // 为每个主路添加 1-2 个副地块 (Slot)
-                    this.createSlot(node, x, z - 2); // 上方副地块
+                    const slotDir = i % 2 === 0 ? -2 : 2;
+                    this.createSlot(node, x, z + slotDir);
                     if (i % 3 === 0) this.createSlot(node, x, z + 2); // 偶尔下方也有
-                }
+                });
+
+                this.animateMapIntro();
+            },
+
+            getMapIntroObjects() {
+                return [
+                    ...this.nodes.map(n => n.mesh),
+                    ...this.slots.map(s => s.mesh),
+                    ...this.monsters.map(m => m.meshGroup)
+                ].filter(Boolean);
+            },
+
+            animateMapIntro() {
+                this.getMapIntroObjects().forEach((mesh, index) => {
+                    const baseY = mesh.userData.baseY ?? mesh.position.y;
+                    new TWEEN.Tween(mesh.position)
+                        .to({ y: baseY }, 720)
+                        .delay(index * 22)
+                        .easing(TWEEN.Easing.Elastic.Out)
+                        .onComplete(() => {
+                            if (mesh.userData.startFloatAfterIntro) mesh.userData.startFloatAfterIntro();
+                        })
+                        .start();
+                });
             },
 
             createSlot(node, x, z) {
                 // 检查是否与其他主路/副地块重叠 (简易判定)
                 const overlap = this.nodes.find(n => n.x === x && n.z === z);
                 if (overlap) return;
+                const slotOverlap = this.slots.find(s => s.x === x && s.z === z);
+                if (slotOverlap) return;
 
                 const slotMesh = this.createToonBox(1.6, 0.4, 1.6, 0xdfe4ea);
-                slotMesh.position.set(x, 0.05, z);
+                slotMesh.userData.baseY = 0.05;
+                slotMesh.position.set(x, -8, z);
                 this.scene.add(slotMesh);
 
                 const slot = {
@@ -500,7 +556,8 @@
 
                 group.add(body);
                 group.add(horn);
-                group.position.set(slot.x, 0.18, slot.z);
+                group.userData.baseY = 0.18;
+                group.position.set(slot.x, -8, slot.z);
                 this.scene.add(group);
 
                 const monster = {
@@ -517,13 +574,15 @@
                 slot.monster = monster;
                 this.monsters.push(monster);
 
-                const floatTween = new TWEEN.Tween(group.position)
-                    .to({ y: 0.34 }, 700)
-                    .yoyo(true)
-                    .repeat(Infinity)
-                    .easing(TWEEN.Easing.Sinusoidal.InOut)
-                    .start();
-                monster.floatTween = floatTween;
+                group.userData.startFloatAfterIntro = () => {
+                    if (monster.floatTween) return;
+                    monster.floatTween = new TWEEN.Tween(group.position)
+                        .to({ y: 0.34 }, 700)
+                        .yoyo(true)
+                        .repeat(Infinity)
+                        .easing(TWEEN.Easing.Sinusoidal.InOut)
+                        .start();
+                };
             },
 
             clearMonster(slot) {
@@ -625,6 +684,22 @@
                             .start();
                     })
                     .start();
+            },
+
+            chooseNextNodeIndex(node, player) {
+                const options = node.nextOptions || [{ target: node.next, weight: 1 }];
+                if (options.length === 1) return options[0].target;
+                let roll = Math.random();
+                for (const option of options) {
+                    roll -= option.weight;
+                    if (roll <= 0) {
+                        if (option.target !== node.next) {
+                            this.log(`${player.name} 发现岔路，走向了另一条浮空小径。`);
+                        }
+                        return option.target;
+                    }
+                }
+                return options[0].target;
             },
 
             getOrderedLandingEventSlots(slots, player) {
@@ -880,7 +955,7 @@
 
                 const currNode = this.nodes[player.nodeIndex];
                 const oldNodeIndex = player.nodeIndex;
-                const nextNodeIndex = currNode.next;
+                const nextNodeIndex = this.chooseNextNodeIndex(currNode, player);
                 const nextNode = this.nodes[nextNodeIndex];
                 player.nodeIndex = nextNodeIndex;
                 const nextOccupants = this.getPlayersOnNode(nextNodeIndex);
