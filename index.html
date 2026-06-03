@@ -1700,36 +1700,44 @@
                     let playerDmg = 0;
 
                     if (command === 'flee') {
+                        await this.focusBattleCamera(attacker.meshGroup, 1.45, 220);
                         fled = Math.random() < 0.55 || kind === 'monster';
                         this.log(fled ? "成功撤退！" : "撤退失败！");
                         if (fled) break;
                     } else if (command === 'defend') {
                         defend = true;
                         this.log(`${attacker.name} 摆出防御姿态。`);
+                        await this.focusBattleCamera(attacker.meshGroup, 1.58, 220);
                     } else if (command === 'skill') {
                         playerDmg = Math.max(8, attacker.atk + 8 + Math.floor(Math.random() * 8));
                         this.log(`${attacker.name} 释放技能！`);
+                        await this.focusBattleCamera(attacker.meshGroup, 1.86, 260);
                     } else if (command === 'attack') {
                         playerDmg = Math.max(4, attacker.atk + Math.floor(Math.random() * 6));
+                        await this.focusBattleCamera(attacker.meshGroup, 1.62, 220);
                     } else {
                         this.log("指令失效，默认防御。");
                         defend = true;
+                        await this.focusBattleCamera(attacker.meshGroup, 1.5, 180);
                     }
 
                     if (playerDmg > 0) {
                         enemyState.hp -= playerDmg;
                         this.createFloatingText(`-${playerDmg}`, enemyPos, "#ff4757");
                         this.bumpCombatant(attacker.meshGroup, enemyPos);
-                        await this.wait(520);
+                        await this.focusBattleCamera(enemyMesh || enemyPos, 1.72, 220);
+                        await this.wait(300);
                     }
 
                     if (enemyState.hp <= 0 || fled) break;
 
                     const incoming = Math.max(1, enemyState.atk + Math.floor(Math.random() * 4) - (defend ? 7 : 0));
+                    await this.focusBattleCamera(enemyMesh || enemyPos, 1.58, 220);
                     attacker.hp -= incoming;
                     this.screenFlash();
                     this.createFloatingText(`-${incoming}`, attacker.meshGroup.position, "#ff0000");
-                    await this.wait(560);
+                    await this.focusBattleCamera(attacker.meshGroup, 1.72, 180);
+                    await this.wait(380);
                 }
 
                 document.getElementById('battle-ui').style.display = 'none';
