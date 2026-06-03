@@ -122,6 +122,73 @@
             position: absolute; top:0; left:0; width:100%; height:100%;
             background: red; opacity: 0; pointer-events: none; transition: opacity 0.1s;
         }
+
+        #battle-ui {
+            position: absolute;
+            left: 50%;
+            bottom: 24px;
+            transform: translateX(-50%);
+            display: none;
+            gap: 10px;
+            pointer-events: auto;
+            background: rgba(255,255,255,0.92);
+            border: 4px solid #111;
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow: 5px 5px 0 rgba(0,0,0,0.28);
+        }
+        .battle-command {
+            min-width: 92px;
+            padding: 12px 14px;
+            border: 3px solid #111;
+            background: #f8f1e1;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 4px 0 #111;
+        }
+        .battle-command:active {
+            transform: translateY(4px);
+            box-shadow: none;
+        }
+        #taunt-layer {
+            display: none;
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+        .taunt-box {
+            position: absolute;
+            max-width: min(420px, 42vw);
+            min-height: 58px;
+            background: #fff8e8;
+            color: #111;
+            border: 5px solid #111;
+            border-radius: 6px;
+            padding: 14px 18px;
+            font-size: 20px;
+            font-weight: 900;
+            line-height: 1.25;
+            box-shadow: 7px 7px 0 rgba(0,0,0,0.32);
+            transform: rotate(-2deg) skew(-3deg);
+        }
+        #taunt-hero { left: 7%; bottom: 24%; }
+        #taunt-enemy { right: 7%; top: 18%; transform: rotate(2deg) skew(3deg); }
+        #battle-result {
+            display: none;
+            position: absolute;
+            left: 50%;
+            top: 38%;
+            transform: translate(-50%, -50%) rotate(-3deg);
+            padding: 22px 34px;
+            background: #ffdd59;
+            color: #111;
+            border: 6px solid #111;
+            font-size: clamp(34px, 7vw, 78px);
+            font-weight: 1000;
+            letter-spacing: 0;
+            box-shadow: 10px 10px 0 rgba(0,0,0,0.32);
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -157,6 +224,20 @@
                 <button id="btn-challenge-facility" class="build-btn challenge" onclick="Game.challengeSelectedFacility()">挑战建筑</button>
                 <button class="build-btn cancel" onclick="Game.closeBuildMenu()">返回选择</button>
             </div>
+        </div>
+
+        <div id="taunt-layer">
+            <div id="taunt-hero" class="taunt-box"></div>
+            <div id="taunt-enemy" class="taunt-box"></div>
+        </div>
+
+        <div id="battle-result"></div>
+
+        <div id="battle-ui">
+            <button class="battle-command" onclick="Game.chooseBattleCommand('attack')">攻击</button>
+            <button class="battle-command" onclick="Game.chooseBattleCommand('skill')">技能</button>
+            <button class="battle-command" onclick="Game.chooseBattleCommand('defend')">防御</button>
+            <button class="battle-command" onclick="Game.chooseBattleCommand('flee')">逃跑</button>
         </div>
 
         <div id="msg-log"></div>
@@ -231,6 +312,10 @@
             cameraMode: CameraMode.FOLLOW,
             cameraReturnTween: null,
             slotHighlightTweens: [],
+            battleContext: null,
+            battleCommandResolver: null,
+            battleFloor: null,
+            battleSnapshot: null,
             actionConsumedThisTurn: false,
             maxFacilityLevel: 3,
             facilityConfigs: {
@@ -1150,18 +1235,267 @@
                 };
             },
 
+            captureBattleSnapshot(attacker, enemyMesh) {
+                const mapObjects = [
+                    ...this.nodes.map(n => n.mesh),
+                    ...this.slots.map(s => s.mesh),
+                    ...this.slots.map(s => s.facilityMesh).filter(Boolean),
+                    ...this.monsters.map(m => m.meshGroup).filter(Boolean)
+                ].filter(obj => obj !== attacker.meshGroup && obj !== enemyMesh);
+
+                return {
+                    camera: {
+                        position: this.camera.position.clone(),
+                        zoom: this.camera.zoom
+                    },
+                    attacker: {
+                        mesh: attacker.meshGroup,
+                        position: attacker.meshGroup.position.clone(),
+                        rotation: attacker.meshGroup.rotation.clone(),
+                        scale: attacker.meshGroup.scale.clone()
+                    },
+                    enemy: enemyMesh ? {
+                        mesh: enemyMesh,
+                        position: enemyMesh.position.clone(),
+                        rotation: enemyMesh.rotation.clone(),
+                        scale: enemyMesh.scale.clone()
+                    } : null,
+                    mapObjects: mapObjects.map((mesh, index) => ({
+                        mesh,
+                        index,
+                        position: mesh.position.clone(),
+                        visible: mesh.visible
+                    }))
+                };
+            },
+
+            createBattleFloor() {
+                if (this.battleFloor) this.scene.remove(this.battleFloor);
+                const group = new THREE.Group();
+                const base = this.createToonBox(10, 0.35, 6, 0x9be7a5);
+                base.position.set(0, -0.18, 0);
+                const stripe = this.createToonBox(8.4, 0.08, 0.42, 0xf7f1e3, false);
+                stripe.position.set(0, 0.06, 0);
+                const heroMark = this.createToonBox(2.4, 0.1, 1.4, 0x70a1ff, false);
+                heroMark.position.set(-2.8, 0.11, 1.25);
+                const enemyMark = this.createToonBox(2.4, 0.1, 1.4, 0xff6b81, false);
+                enemyMark.position.set(2.8, 0.11, -1.25);
+                group.add(base, stripe, heroMark, enemyMark);
+                group.position.set(5, -8, 5);
+                this.scene.add(group);
+                this.battleFloor = group;
+                return group;
+            },
+
+            async enterBattleScene(attacker, enemy) {
+                const enemyMesh = enemy.meshGroup || null;
+                this.battleSnapshot = this.captureBattleSnapshot(attacker, enemyMesh);
+                const floor = this.createBattleFloor();
+
+                this.battleSnapshot.mapObjects.forEach(({ mesh, index, position }) => {
+                    new TWEEN.Tween(mesh.position)
+                        .to({ y: position.y - 10 }, 420)
+                        .delay(index * 14)
+                        .easing(TWEEN.Easing.Back.In)
+                        .start();
+                });
+
+                new TWEEN.Tween(floor.position)
+                    .to({ x: 5, y: 0, z: 5 }, 620)
+                    .easing(TWEEN.Easing.Elastic.Out)
+                    .start();
+
+                await this.wait(360);
+                const heroPos = new THREE.Vector3(2.4, 0.35, 7.0);
+                const enemyPos = new THREE.Vector3(7.4, 0.55, 3.0);
+
+                new TWEEN.Tween(attacker.meshGroup.position)
+                    .to({ x: heroPos.x, y: heroPos.y, z: heroPos.z }, 620)
+                    .easing(TWEEN.Easing.Back.Out)
+                    .start();
+                new TWEEN.Tween(attacker.meshGroup.rotation)
+                    .to({ y: -0.75 }, 420)
+                    .start();
+
+                if (enemyMesh) {
+                    new TWEEN.Tween(enemyMesh.position)
+                        .to({ x: enemyPos.x, y: enemyPos.y, z: enemyPos.z }, 620)
+                        .easing(TWEEN.Easing.Back.Out)
+                        .start();
+                    new TWEEN.Tween(enemyMesh.rotation)
+                        .to({ y: 2.35 }, 420)
+                        .start();
+                }
+
+                new TWEEN.Tween(this.camera)
+                    .to({ zoom: 1.25 }, 520)
+                    .onUpdate(() => this.camera.updateProjectionMatrix())
+                    .start();
+                await this.wait(700);
+            },
+
+            async exitBattleScene() {
+                if (!this.battleSnapshot) return;
+                const snapshot = this.battleSnapshot;
+                snapshot.mapObjects.forEach(({ mesh, position, visible, index }) => {
+                    mesh.visible = visible;
+                    new TWEEN.Tween(mesh.position)
+                        .to({ x: position.x, y: position.y, z: position.z }, 440)
+                        .delay(index * 10)
+                        .easing(TWEEN.Easing.Back.Out)
+                        .start();
+                });
+
+                new TWEEN.Tween(snapshot.attacker.mesh.position)
+                    .to({ x: snapshot.attacker.position.x, y: snapshot.attacker.position.y, z: snapshot.attacker.position.z }, 440)
+                    .easing(TWEEN.Easing.Back.Out)
+                    .start();
+                snapshot.attacker.mesh.rotation.copy(snapshot.attacker.rotation);
+                snapshot.attacker.mesh.scale.copy(snapshot.attacker.scale);
+
+                if (snapshot.enemy) {
+                    new TWEEN.Tween(snapshot.enemy.mesh.position)
+                        .to({ x: snapshot.enemy.position.x, y: snapshot.enemy.position.y, z: snapshot.enemy.position.z }, 440)
+                        .easing(TWEEN.Easing.Back.Out)
+                        .start();
+                    snapshot.enemy.mesh.rotation.copy(snapshot.enemy.rotation);
+                    snapshot.enemy.mesh.scale.copy(snapshot.enemy.scale);
+                }
+
+                if (this.battleFloor) {
+                    new TWEEN.Tween(this.battleFloor.position)
+                        .to({ y: -8 }, 360)
+                        .easing(TWEEN.Easing.Back.In)
+                        .onComplete(() => {
+                            this.scene.remove(this.battleFloor);
+                            this.battleFloor = null;
+                        })
+                        .start();
+                }
+
+                this.camera.position.copy(snapshot.camera.position);
+                new TWEEN.Tween(this.camera)
+                    .to({ zoom: snapshot.camera.zoom }, 300)
+                    .onUpdate(() => this.camera.updateProjectionMatrix())
+                    .start();
+                await this.wait(620);
+                this.battleSnapshot = null;
+            },
+
+            async showTauntSequence(attacker, enemyName) {
+                const layer = document.getElementById('taunt-layer');
+                const heroBox = document.getElementById('taunt-hero');
+                const enemyBox = document.getElementById('taunt-enemy');
+                layer.style.display = 'block';
+                heroBox.innerText = '';
+                enemyBox.innerText = '';
+                await this.typeBattleText(heroBox, `${attacker.name}: 这块地，我要闯过去！`);
+                await this.wait(220);
+                await this.typeBattleText(enemyBox, `${enemyName}: 来吧，先打碎我的气势！`);
+                await this.wait(420);
+                layer.style.display = 'none';
+            },
+
+            async typeBattleText(element, text) {
+                element.innerText = '';
+                for (let i = 0; i < text.length; i++) {
+                    element.innerText += text[i];
+                    await this.wait(24);
+                }
+            },
+
+            chooseBattleCommand(command) {
+                if (!this.battleCommandResolver) return;
+                const resolve = this.battleCommandResolver;
+                this.battleCommandResolver = null;
+                document.getElementById('battle-ui').style.display = 'none';
+                resolve(command);
+            },
+
+            waitForBattleCommand() {
+                document.getElementById('battle-ui').style.display = 'flex';
+                return new Promise(resolve => {
+                    this.battleCommandResolver = resolve;
+                });
+            },
+
+            async showBattleResult(victory, fled = false) {
+                const result = document.getElementById('battle-result');
+                result.innerText = fled ? '撤退!' : (victory ? '胜利!' : '失败!');
+                result.style.background = victory ? '#ffdd59' : (fled ? '#ced6e0' : '#ff6b81');
+                result.style.display = 'block';
+
+                if (this.battleSnapshot) {
+                    const actor = victory ? this.battleSnapshot.attacker.mesh : (this.battleSnapshot.enemy ? this.battleSnapshot.enemy.mesh : this.battleSnapshot.attacker.mesh);
+                    if (victory) {
+                        this.cheerCombatant(actor);
+                        this.spawnConfetti(actor.position);
+                    } else if (!fled) {
+                        this.slumpCombatant(this.battleSnapshot.attacker.mesh);
+                    }
+                }
+
+                await this.wait(900);
+                result.style.display = 'none';
+            },
+
+            cheerCombatant(mesh) {
+                new TWEEN.Tween(mesh.scale)
+                    .to({ x: 1.18, y: 1.28, z: 1.18 }, 160)
+                    .yoyo(true)
+                    .repeat(3)
+                    .easing(TWEEN.Easing.Back.Out)
+                    .start();
+                new TWEEN.Tween(mesh.rotation)
+                    .to({ z: 0.22 }, 120)
+                    .yoyo(true)
+                    .repeat(5)
+                    .start();
+            },
+
+            slumpCombatant(mesh) {
+                new TWEEN.Tween(mesh.scale)
+                    .to({ x: 1.18, y: 0.72, z: 1.18 }, 260)
+                    .easing(TWEEN.Easing.Bounce.Out)
+                    .start();
+                new TWEEN.Tween(mesh.rotation)
+                    .to({ z: -0.45 }, 260)
+                    .easing(TWEEN.Easing.Back.Out)
+                    .start();
+            },
+
+            spawnConfetti(origin) {
+                const colors = [0xff4757, 0x1e90ff, 0x2ed573, 0xeccc68, 0xa55eea];
+                for (let i = 0; i < 18; i++) {
+                    const confetti = this.createToonBox(0.12, 0.04, 0.18, colors[i % colors.length], false);
+                    confetti.position.set(origin.x, origin.y + 1.2, origin.z);
+                    this.scene.add(confetti);
+                    new TWEEN.Tween(confetti.position)
+                        .to({
+                            x: origin.x + (Math.random() - 0.5) * 4,
+                            y: origin.y + 1.2 + Math.random() * 2.2,
+                            z: origin.z + (Math.random() - 0.5) * 3
+                        }, 520)
+                        .easing(TWEEN.Easing.Quadratic.Out)
+                        .onComplete(() => {
+                            new TWEEN.Tween(confetti.position)
+                                .to({ y: origin.y - 0.2 }, 620)
+                                .easing(TWEEN.Easing.Quadratic.In)
+                                .onComplete(() => this.scene.remove(confetti))
+                                .start();
+                        })
+                        .start();
+                    new TWEEN.Tween(confetti.rotation)
+                        .to({ x: Math.PI * 4, y: Math.PI * 3, z: Math.PI * 2 }, 1000)
+                        .start();
+                }
+            },
+
             async resolveBattleShell({ attacker, enemy, sourceSlot, kind }) {
                 this.transitionTo(TurnState.BATTLE, kind === 'monster' ? '野怪战斗' : '建筑挑战');
                 this.stopSlotHighlightOnly();
                 document.getElementById('btn-end').style.display = 'none';
 
-                const previousZoom = this.camera.zoom;
-                new TWEEN.Tween(this.camera.zoom)
-                    .to({ value: 1.45 }, 360)
-                    .onUpdate(() => this.camera.updateProjectionMatrix())
-                    .start();
-
-                const enemyPos = sourceSlot ? sourceSlot.mesh.position : attacker.meshGroup.position;
                 const enemyState = {
                     name: enemy.name,
                     hp: enemy.hp,
@@ -1170,34 +1504,59 @@
                 };
                 this.log(`${attacker.name} 向 ${enemyState.name} 发起战斗！`);
 
-                await this.wait(420);
-                let defending = false;
-                for (let round = 1; round <= 5 && attacker.hp > 0 && enemyState.hp > 0; round++) {
-                    const playerDmg = Math.max(4, attacker.atk + Math.floor(Math.random() * 6));
-                    enemyState.hp -= playerDmg;
-                    this.createFloatingText(`-${playerDmg}`, enemyPos, "#ff4757");
-                    this.bumpCombatant(attacker.meshGroup, enemyPos);
-                    await this.wait(520);
-                    if (enemyState.hp <= 0) break;
+                await this.enterBattleScene(attacker, enemy);
+                await this.showTauntSequence(attacker, enemyState.name);
+                const enemyMesh = enemy.meshGroup || (sourceSlot ? sourceSlot.mesh : null);
+                const enemyPos = enemyMesh ? enemyMesh.position : attacker.meshGroup.position;
 
-                    defending = round % 3 === 0;
-                    const incoming = Math.max(1, enemyState.atk + Math.floor(Math.random() * 4) - (defending ? 4 : 0));
+                let fled = false;
+                for (let round = 1; round <= 8 && attacker.hp > 0 && enemyState.hp > 0; round++) {
+                    this.log(`选择行动：${attacker.name} HP ${attacker.hp}/${attacker.maxHp}，${enemyState.name} HP ${Math.max(0, enemyState.hp)}/${enemyState.maxHp}`);
+                    const command = await this.waitForBattleCommand();
+                    let defend = false;
+                    let playerDmg = 0;
+
+                    if (command === 'flee') {
+                        fled = Math.random() < 0.55 || kind === 'monster';
+                        this.log(fled ? "成功撤退！" : "撤退失败！");
+                        if (fled) break;
+                    } else if (command === 'defend') {
+                        defend = true;
+                        this.log(`${attacker.name} 摆出防御姿态。`);
+                    } else if (command === 'skill') {
+                        playerDmg = Math.max(8, attacker.atk + 8 + Math.floor(Math.random() * 8));
+                        this.log(`${attacker.name} 释放技能！`);
+                    } else if (command === 'attack') {
+                        playerDmg = Math.max(4, attacker.atk + Math.floor(Math.random() * 6));
+                    } else {
+                        this.log("指令失效，默认防御。");
+                        defend = true;
+                    }
+
+                    if (playerDmg > 0) {
+                        enemyState.hp -= playerDmg;
+                        this.createFloatingText(`-${playerDmg}`, enemyPos, "#ff4757");
+                        this.bumpCombatant(attacker.meshGroup, enemyPos);
+                        await this.wait(520);
+                    }
+
+                    if (enemyState.hp <= 0 || fled) break;
+
+                    const incoming = Math.max(1, enemyState.atk + Math.floor(Math.random() * 4) - (defend ? 7 : 0));
                     attacker.hp -= incoming;
                     this.screenFlash();
                     this.createFloatingText(`-${incoming}`, attacker.meshGroup.position, "#ff0000");
-                    await this.wait(520);
+                    await this.wait(560);
                 }
 
-                const victory = enemyState.hp <= 0 && attacker.hp > 0;
+                document.getElementById('battle-ui').style.display = 'none';
+                const victory = !fled && enemyState.hp <= 0 && attacker.hp > 0;
                 if (attacker.hp <= 0) {
                     attacker.hp = Math.max(1, Math.floor(attacker.maxHp * 0.35));
                 }
 
-                new TWEEN.Tween(this.camera.zoom)
-                    .to({ value: previousZoom }, 360)
-                    .onUpdate(() => this.camera.updateProjectionMatrix())
-                    .start();
-                await this.wait(380);
+                await this.showBattleResult(victory, fled);
+                await this.exitBattleScene();
                 this.transitionTo(TurnState.ACTION_SELECT);
                 return victory;
             },
