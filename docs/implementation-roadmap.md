@@ -88,6 +88,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added an optional wizard dead-end node with gold/HP-for-card trades.
 - Added a minimal deck-combat foundation: starter decks, shuffle/draw/discard, and card actions in battle.
 - Added continuous idle floating for road and land tiles with pause/resume around bounce, action highlights, and battle transitions.
+- Added battle deck HUD counters and card kind labels for the deck-combat UI.
 
 ## Validation Gates
 

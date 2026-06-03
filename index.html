@@ -139,6 +139,21 @@
             border-radius: 8px;
             padding: 12px;
             box-shadow: 5px 5px 0 rgba(0,0,0,0.28);
+            align-items: stretch;
+        }
+        .battle-deck-hud {
+            min-width: 104px;
+            padding: 10px;
+            border: 3px solid #111;
+            background: #f7f1e3;
+            color: #111;
+            font-weight: 900;
+            text-align: left;
+            box-shadow: 0 4px 0 #111;
+        }
+        .battle-deck-hud div {
+            font-size: 12px;
+            margin: 3px 0;
         }
         .battle-command {
             min-width: 92px;
@@ -171,6 +186,15 @@
             display: block;
             margin-bottom: 8px;
             font-size: 16px;
+        }
+        .battle-card em {
+            display: inline-block;
+            margin-bottom: 8px;
+            padding: 3px 6px;
+            border: 2px solid #111;
+            background: #ffffff;
+            font-size: 11px;
+            font-style: normal;
         }
         .battle-card span {
             display: block;
@@ -1974,12 +1998,20 @@
                 const battleUi = document.getElementById('battle-ui');
                 const hand = this.drawBattleCards(player, 3);
                 battleUi.innerHTML = '';
+                const hud = document.createElement('div');
+                hud.className = 'battle-deck-hud';
+                hud.innerHTML = `
+                    <div>抽牌堆 ${player.drawPile.length}</div>
+                    <div>弃牌堆 ${player.discardPile.length}</div>
+                    <div>手牌 ${hand.length}</div>
+                `;
+                battleUi.appendChild(hud);
                 hand.forEach((cardId, index) => {
                     const card = this.cardLibrary[cardId];
                     const btn = document.createElement('button');
                     btn.className = 'battle-card';
                     btn.onclick = () => this.chooseBattleCard(index);
-                    btn.innerHTML = `<strong>${card.name}</strong><span>${card.text}</span>`;
+                    btn.innerHTML = `<strong>${card.name}</strong><em>${this.getCardKindLabel(card.kind)}</em><span>${card.text}</span>`;
                     battleUi.appendChild(btn);
                 });
 
@@ -1989,6 +2021,17 @@
                 fleeBtn.innerHTML = '<strong>撤退</strong><span>尝试脱离战斗。</span>';
                 battleUi.appendChild(fleeBtn);
                 battleUi.style.display = 'flex';
+            },
+
+            getCardKindLabel(kind) {
+                const labels = {
+                    attack: '攻击',
+                    skill: '技能',
+                    defend: '防御',
+                    heal: '治疗',
+                    buff: '强化'
+                };
+                return labels[kind] || '行动';
             },
 
             chooseBattleCard(index) {
@@ -2180,6 +2223,7 @@
                 }
 
                 document.getElementById('battle-ui').style.display = 'none';
+                document.getElementById('battle-ui').innerHTML = '';
                 const victory = !fled && enemyState.hp <= 0 && attacker.hp > 0;
                 if (attacker.hp <= 0) {
                     attacker.hp = Math.max(1, Math.floor(attacker.maxHp * 0.35));
