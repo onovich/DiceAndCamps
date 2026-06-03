@@ -1076,9 +1076,10 @@
                         if (slot.type === 'GUARD') await this.triggerCombat(slot, player);
                         if (player.hp <= 0) break;
                     } else if (slot.owner === player && slot.type === 'INCOME') {
-                        this.log(`路过自己的金矿，收益 +50G`);
-                        player.gold += 50;
-                        this.createFloatingText("+50G", slot.mesh.position, "#eccc68");
+                        const income = 40 + slot.level * 25 + slot.guards.length * 10;
+                        this.log(`路过自己的金矿，收益 +${income}G`);
+                        player.gold += income;
+                        this.createFloatingText(`+${income}G`, slot.mesh.position, "#eccc68");
                     }
                 }
 
@@ -1097,8 +1098,9 @@
 
             async triggerTrap(slot, player) {
                 return new Promise(resolve => {
-                    this.log(`踩中敌方陷阱！扣除 20% HP`);
-                    const dmg = Math.floor(player.maxHp * 0.2);
+                    const rate = 0.16 + slot.level * 0.06;
+                    this.log(`踩中敌方 Lv.${slot.level} 陷阱！扣除 ${Math.round(rate * 100)}% HP`);
+                    const dmg = Math.floor(player.maxHp * rate);
                     player.hp = Math.max(1, player.hp - dmg);
                     this.screenFlash();
                     this.createFloatingText(`-${dmg}`, player.meshGroup.position, "#ff0000");
@@ -1107,52 +1109,28 @@
             },
 
             async triggerCombat(slot, player) {
-                return new Promise(resolve => {
-                    this.log(`遭遇敌方守卫！进入战斗！`);
-                    // 镜头特写
-                    new TWEEN.Tween(this.camera.zoom).to({ value: 1.5 }, 500)
-                        .onUpdate(() => this.camera.updateProjectionMatrix()).start();
-
-                    let guardHp = 40;
-                    const combatLoop = setInterval(() => {
-                        // 玩家攻击
-                        guardHp -= player.atk;
-                        // 简易位移攻击动画
-                        new TWEEN.Tween(player.meshGroup.position)
-                            .to({ x: player.meshGroup.position.x + (slot.x - player.meshGroup.position.x)*0.3, 
-                                  z: player.meshGroup.position.z + (slot.z - player.meshGroup.position.z)*0.3 }, 100)
-                            .yoyo(true).repeat(1).start();
-
-                        if (guardHp <= 0) {
-                            clearInterval(combatLoop);
-                            this.log(`击败守卫！获得 100G 和 50EXP`);
-                            player.gold += 100;
-                            this.gainExp(player, 50);
-                            
-                            // 摧毁建筑
-                            this.scene.remove(slot.facilityMesh);
-                            slot.type = 'EMPTY'; slot.owner = null; slot.facilityMesh = null;
-                            
-                            // 镜头还原
-                            new TWEEN.Tween(this.camera.zoom).to({ value: 1 }, 500)
-                                .onUpdate(() => this.camera.updateProjectionMatrix()).start();
-                            resolve();
-                        } else {
-                            // 守卫反击
-                            const dmg = 5;
-                            player.hp -= dmg;
-                            this.screenFlash();
-                            this.createFloatingText(`-${dmg}`, player.meshGroup.position, "#ff0000");
-                            if (player.hp <= 0) {
-                                clearInterval(combatLoop);
-                                new TWEEN.Tween(this.camera.zoom).to({ value: 1 }, 500)
-                                    .onUpdate(() => this.camera.updateProjectionMatrix()).start();
-                                resolve();
-                            }
-                        }
-                        this.updateUI();
-                    }, 800);
+                this.log(`遭遇敌方 ${this.getFacilityName(slot)} 的守军，进入战斗！`);
+                const enemy = this.createBuildingBattleEnemy(slot);
+                const victory = await this.resolveBattleShell({
+                    attacker: player,
+                    enemy,
+                    sourceSlot: slot,
+                    kind: 'facility'
                 });
+
+                if (victory) {
+                    const rewardGold = 70 + slot.level * 35 + slot.guards.length * 25;
+                    const rewardExp = 30 + slot.level * 15 + slot.guards.length * 10;
+                    const name = this.getFacilityName(slot);
+                    player.gold += rewardGold;
+                    this.gainExp(player, rewardExp);
+                    this.clearFacility(slot);
+                    this.createFloatingText("摧毁", slot.mesh.position, "#ff4757");
+                    this.log(`击败守军并摧毁敌方 ${name}，获得 ${rewardGold}G 和 ${rewardExp}EXP。`);
+                } else {
+                    this.log(`未能突破敌方 ${this.getFacilityName(slot)}，守军仍然驻守。`);
+                }
+                this.updateUI();
             },
 
             gainExp(player, amount) {
