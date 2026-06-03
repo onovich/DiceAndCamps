@@ -1566,6 +1566,14 @@
                 });
             },
 
+            async chooseAutoBattleCommand(attacker, enemyState, kind, round) {
+                await this.wait(420);
+                if (attacker.hp < attacker.maxHp * 0.28 && kind === 'monster') return 'flee';
+                if (attacker.hp < attacker.maxHp * 0.35 && round % 2 === 0) return 'defend';
+                if (enemyState.hp > attacker.atk + 12 && Math.random() < 0.45) return 'skill';
+                return 'attack';
+            },
+
             async showBattleResult(victory, fled = false) {
                 const result = document.getElementById('battle-result');
                 result.innerText = fled ? '撤退!' : (victory ? '胜利!' : '失败!');
@@ -1659,7 +1667,9 @@
                 let fled = false;
                 for (let round = 1; round <= 8 && attacker.hp > 0 && enemyState.hp > 0; round++) {
                     this.log(`选择行动：${attacker.name} HP ${attacker.hp}/${attacker.maxHp}，${enemyState.name} HP ${Math.max(0, enemyState.hp)}/${enemyState.maxHp}`);
-                    const command = await this.waitForBattleCommand();
+                    const command = attacker.isPlayer
+                        ? await this.waitForBattleCommand()
+                        : await this.chooseAutoBattleCommand(attacker, enemyState, kind, round);
                     let defend = false;
                     let playerDmg = 0;
 
