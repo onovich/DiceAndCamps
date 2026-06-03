@@ -95,6 +95,8 @@
         .build-btn.income { background: #eccc68; color: #333; }
         .build-btn.upgrade { background: #2ed573; color: #063b1f; }
         .build-btn.demolish { background: #57606f; color: white; }
+        .build-btn.monster { background: #ff6b81; color: white; }
+        .build-btn.challenge { background: #1e90ff; color: white; }
         .build-btn.cancel { background: #ced6e0; color: #333; }
         .build-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
@@ -151,6 +153,8 @@
                 <button id="btn-build-income" class="build-btn income" onclick="Game.buildFacility('INCOME')">金矿 (100G)</button>
                 <button id="btn-upgrade-facility" class="build-btn upgrade" onclick="Game.upgradeSelectedFacility()">升级</button>
                 <button id="btn-demolish-facility" class="build-btn demolish" onclick="Game.demolishSelectedFacility()">拆毁</button>
+                <button id="btn-fight-monster" class="build-btn monster" onclick="Game.fightSelectedMonster()">讨伐野怪</button>
+                <button id="btn-challenge-facility" class="build-btn challenge" onclick="Game.challengeSelectedFacility()">挑战建筑</button>
                 <button class="build-btn cancel" onclick="Game.closeBuildMenu()">返回选择</button>
             </div>
         </div>
@@ -220,6 +224,7 @@
             players: [],
             nodes: [], // 主路
             slots: [], // 副地块
+            monsters: [],
             currentPlayerIndex: 0,
             state: TurnState.IDLE, // explicit turn/action state machine
             dicePhase: DicePhase.READY,
@@ -386,10 +391,63 @@
                     facilityMesh: null,
                     defense: 0,
                     guardSlots: 0,
-                    guards: []
+                    guards: [],
+                    monster: null
                 };
                 node.slots.push(slot);
                 this.slots.push(slot);
+                if (node.id % 5 === 2) this.spawnMonsterOnSlot(slot);
+            },
+
+            spawnMonsterOnSlot(slot) {
+                const group = new THREE.Group();
+                const bodyGeom = new THREE.SphereGeometry(0.36, 16, 16);
+                const body = new THREE.Mesh(bodyGeom, new THREE.MeshToonMaterial({ color: 0x20bf6b }));
+                body.scale.set(1.15, 0.72, 1.15);
+                body.position.y = 0.42;
+                body.castShadow = true;
+
+                const hornGeom = new THREE.ConeGeometry(0.16, 0.32, 8);
+                const horn = new THREE.Mesh(hornGeom, new THREE.MeshToonMaterial({ color: 0xf7f1e3 }));
+                horn.position.set(0.18, 0.78, 0.06);
+                horn.rotation.z = -0.35;
+                horn.castShadow = true;
+
+                group.add(body);
+                group.add(horn);
+                group.position.set(slot.x, 0.18, slot.z);
+                this.scene.add(group);
+
+                const monster = {
+                    name: '野生黏黏怪',
+                    hp: 28,
+                    maxHp: 28,
+                    atk: 6,
+                    exp: 20,
+                    gold: 25,
+                    slot,
+                    meshGroup: group,
+                    bodyMesh: body
+                };
+                slot.monster = monster;
+                this.monsters.push(monster);
+
+                const floatTween = new TWEEN.Tween(group.position)
+                    .to({ y: 0.34 }, 700)
+                    .yoyo(true)
+                    .repeat(Infinity)
+                    .easing(TWEEN.Easing.Sinusoidal.InOut)
+                    .start();
+                monster.floatTween = floatTween;
+            },
+
+            clearMonster(slot) {
+                if (!slot || !slot.monster) return;
+                const monster = slot.monster;
+                if (monster.floatTween) monster.floatTween.stop();
+                if (monster.meshGroup) this.scene.remove(monster.meshGroup);
+                this.monsters = this.monsters.filter(m => m !== monster);
+                slot.monster = null;
             },
 
             initPlayers() {
@@ -546,10 +604,16 @@
                 });
                 const upgradeBtn = document.getElementById('btn-upgrade-facility');
                 const demolishBtn = document.getElementById('btn-demolish-facility');
+                const monsterBtn = document.getElementById('btn-fight-monster');
+                const challengeBtn = document.getElementById('btn-challenge-facility');
                 upgradeBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
                 demolishBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
+                monsterBtn.style.display = mode === 'monster' ? 'inline-block' : 'none';
+                challengeBtn.style.display = mode === 'enemy' ? 'inline-block' : 'none';
                 upgradeBtn.disabled = false;
                 demolishBtn.disabled = false;
+                monsterBtn.disabled = false;
+                challengeBtn.disabled = false;
             },
 
             updateFacilityVisual(slot) {
@@ -948,7 +1012,7 @@
                     // AI 自动逻辑：随机选个空地造建筑
                     setTimeout(() => {
                         this.stopSlotHighlightOnly();
-                        const emptySlot = slots.find(s => s.type === 'EMPTY');
+                        const emptySlot = slots.find(s => s.type === 'EMPTY' && !s.monster);
                         if (emptySlot && player.gold >= 100) {
                             const types = ['TRAP', 'GUARD', 'INCOME'];
                             this.selectedSlot = emptySlot;
@@ -980,7 +1044,10 @@
                 this.transitionTo(TurnState.ACTION_MENU);
                 
                 // 阶段二：弹出菜单
-                if (slot.type === 'EMPTY') {
+                if (slot.type === 'EMPTY' && slot.monster) {
+                    this.setBuildMenuButtons('monster');
+                    document.getElementById('build-desc').innerText = `${slot.monster.name} 占着这块地。打败它后才能在这里建造。胜利不消耗行动，失败会消耗行动。`;
+                } else if (slot.type === 'EMPTY') {
                     this.setBuildMenuButtons('build');
                     document.getElementById('build-desc').innerText = "选择要建造的设施。建造会消耗当前行动。";
                 } else if (slot.owner === player) {
@@ -994,8 +1061,8 @@
                     document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}。升级会消耗当前行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
-                    this.setBuildMenuButtons('none');
-                    document.getElementById('build-desc').innerText = "这是敌方设施。挑战守军和墙壁的行动会在战斗系统中接入。";
+                    this.setBuildMenuButtons('enemy');
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施。可以挑战守军和城墙，胜利摧毁建筑且不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
                 
@@ -1006,6 +1073,149 @@
             closeBuildMenu() {
                 document.getElementById('build-menu').style.display = 'none';
                 this.enterBuildPhase(this.players[this.currentPlayerIndex]); // 返回阶段一重新选
+            },
+
+            async fightSelectedMonster() {
+                const player = this.players[this.currentPlayerIndex];
+                const slot = this.selectedSlot;
+                if (!slot || !slot.monster) {
+                    this.log("这里没有可以讨伐的野怪。");
+                    return;
+                }
+
+                document.getElementById('build-menu').style.display = 'none';
+                const victory = await this.resolveBattleShell({
+                    attacker: player,
+                    enemy: slot.monster,
+                    sourceSlot: slot,
+                    kind: 'monster'
+                });
+
+                if (victory) {
+                    player.gold += slot.monster.gold;
+                    this.gainExp(player, slot.monster.exp);
+                    this.clearMonster(slot);
+                    this.log("野怪被赶走了，这块地现在可以建造。");
+                    this.updateUI();
+                    this.finishAction(false);
+                } else {
+                    this.log("讨伐失败，本次行动结束。");
+                    this.updateUI();
+                    this.finishAction(true);
+                }
+            },
+
+            async challengeSelectedFacility() {
+                const player = this.players[this.currentPlayerIndex];
+                const slot = this.selectedSlot;
+                if (!slot || slot.type === 'EMPTY' || slot.owner === player) {
+                    this.log("只能挑战敌方建筑。");
+                    return;
+                }
+
+                document.getElementById('build-menu').style.display = 'none';
+                const enemy = this.createBuildingBattleEnemy(slot);
+                const victory = await this.resolveBattleShell({
+                    attacker: player,
+                    enemy,
+                    sourceSlot: slot,
+                    kind: 'facility'
+                });
+
+                if (victory) {
+                    const name = this.getFacilityName(slot);
+                    this.clearFacility(slot);
+                    this.createFloatingText("摧毁", slot.mesh.position, "#ff4757");
+                    this.log(`攻破并摧毁了敌方 ${name}。胜利不消耗行动。`);
+                    this.updateUI();
+                    this.finishAction(false);
+                } else {
+                    this.log("挑战失败，本次行动结束。");
+                    this.updateUI();
+                    this.finishAction(true);
+                }
+            },
+
+            createBuildingBattleEnemy(slot) {
+                const hasGuard = slot.guards.length > 0 || slot.type === 'GUARD';
+                const wallHp = Math.max(18, slot.defense);
+                const guardHp = hasGuard ? 24 + slot.level * 8 : 0;
+                return {
+                    name: hasGuard ? `${this.getFacilityName(slot)}守军与城墙` : `${this.getFacilityName(slot)}城墙`,
+                    hp: wallHp + guardHp,
+                    maxHp: wallHp + guardHp,
+                    atk: hasGuard ? 8 + slot.level * 3 : 3 + slot.level,
+                    slot,
+                    meshGroup: slot.facilityMesh || slot.mesh
+                };
+            },
+
+            async resolveBattleShell({ attacker, enemy, sourceSlot, kind }) {
+                this.transitionTo(TurnState.BATTLE, kind === 'monster' ? '野怪战斗' : '建筑挑战');
+                this.stopSlotHighlightOnly();
+                document.getElementById('btn-end').style.display = 'none';
+
+                const previousZoom = this.camera.zoom;
+                new TWEEN.Tween(this.camera.zoom)
+                    .to({ value: 1.45 }, 360)
+                    .onUpdate(() => this.camera.updateProjectionMatrix())
+                    .start();
+
+                const enemyPos = sourceSlot ? sourceSlot.mesh.position : attacker.meshGroup.position;
+                const enemyState = {
+                    name: enemy.name,
+                    hp: enemy.hp,
+                    maxHp: enemy.maxHp || enemy.hp,
+                    atk: enemy.atk || 4
+                };
+                this.log(`${attacker.name} 向 ${enemyState.name} 发起战斗！`);
+
+                await this.wait(420);
+                let defending = false;
+                for (let round = 1; round <= 5 && attacker.hp > 0 && enemyState.hp > 0; round++) {
+                    const playerDmg = Math.max(4, attacker.atk + Math.floor(Math.random() * 6));
+                    enemyState.hp -= playerDmg;
+                    this.createFloatingText(`-${playerDmg}`, enemyPos, "#ff4757");
+                    this.bumpCombatant(attacker.meshGroup, enemyPos);
+                    await this.wait(520);
+                    if (enemyState.hp <= 0) break;
+
+                    defending = round % 3 === 0;
+                    const incoming = Math.max(1, enemyState.atk + Math.floor(Math.random() * 4) - (defending ? 4 : 0));
+                    attacker.hp -= incoming;
+                    this.screenFlash();
+                    this.createFloatingText(`-${incoming}`, attacker.meshGroup.position, "#ff0000");
+                    await this.wait(520);
+                }
+
+                const victory = enemyState.hp <= 0 && attacker.hp > 0;
+                if (attacker.hp <= 0) {
+                    attacker.hp = Math.max(1, Math.floor(attacker.maxHp * 0.35));
+                }
+
+                new TWEEN.Tween(this.camera.zoom)
+                    .to({ value: previousZoom }, 360)
+                    .onUpdate(() => this.camera.updateProjectionMatrix())
+                    .start();
+                await this.wait(380);
+                this.transitionTo(TurnState.ACTION_SELECT);
+                return victory;
+            },
+
+            bumpCombatant(meshGroup, targetPos) {
+                const start = meshGroup.position.clone();
+                const x = start.x + (targetPos.x - start.x) * 0.25;
+                const z = start.z + (targetPos.z - start.z) * 0.25;
+                new TWEEN.Tween(meshGroup.position)
+                    .to({ x, z }, 120)
+                    .yoyo(true)
+                    .repeat(1)
+                    .easing(TWEEN.Easing.Quadratic.Out)
+                    .start();
+            },
+
+            wait(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
             },
 
             upgradeSelectedFacility() {
@@ -1064,6 +1274,10 @@
 
                 if (!slot || slot.type !== 'EMPTY') {
                     this.log("只能在空地上建造。");
+                    return;
+                }
+                if (slot.monster) {
+                    this.log("这块地还有野怪，先打败它才能建造。");
                     return;
                 }
 
