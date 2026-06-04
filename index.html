@@ -2655,11 +2655,18 @@
                     this.createFloatingText("敌方集结", slot.mesh.position, "#4b7bec");
                 } else if (slot.type === 'FORTRESS') {
                     const fortify = 7 + slot.level * 4;
+                    const barrage = 4 + slot.level * 2;
+                    const toll = Math.min(player.gold, 10 + slot.level * 5);
                     slot.defense += fortify;
                     slot.owner.hp = Math.min(slot.owner.maxHp, slot.owner.hp + 5 + slot.level * 2);
+                    player.hp = Math.max(1, player.hp - barrage);
+                    player.gold -= toll;
+                    slot.owner.gold += toll;
                     this.updateFacilityVisual(slot);
-                    this.log(`敌方堡垒重新封死了垛口与射击孔，墙体显得更难啃。`);
+                    this.log(`敌方堡垒重新封死了垛口与射击孔，并用箭塔与城税压制来犯者。`);
                     this.createFloatingText("敌方堡墙", slot.mesh.position, "#8c564b");
+                    this.createFloatingText(`-${barrage}`, player.meshGroup.position, "#ff6b81");
+                    if (toll > 0) this.createFloatingText(`-${toll}G`, player.meshGroup.position, "#eccc68");
                 } else if (slot.type === 'WORKSHOP') {
                     const selfFortify = 5 + slot.level * 2;
                     slot.defense += selfFortify;
@@ -3065,6 +3072,7 @@
                     hp: preview.wallHp,
                     maxHp: preview.wallHp,
                     atk: preview.atk,
+                    facilityLevel: slot.level,
                     facilityType: slot.type,
                     facilityName: this.getFacilityName(slot),
                     wallHp: preview.wallHp,
@@ -3096,6 +3104,7 @@
                         phaseLabel: enemy.hasGuard ? '先破城墙，再逼出守军' : '摧毁城墙即可获胜',
                         intentLabel: '',
                         facilityType: enemy.facilityType,
+                        facilityLevel: enemy.facilityLevel || 1,
                         facilityName: enemy.facilityName,
                         wallHp: enemy.wallHp,
                         wallMaxHp: enemy.wallMaxHp || enemy.wallHp,
@@ -3120,7 +3129,8 @@
                     phase: 'single',
                     phaseLabel: kind === 'monster' ? '击败野怪即可清空地块' : '常规战斗',
                     intentLabel: '',
-                    facilityType: enemy.facilityType || null
+                    facilityType: enemy.facilityType || null,
+                    facilityLevel: enemy.facilityLevel || 1
                 };
             },
 
@@ -3781,6 +3791,15 @@
                             name: '封门加固',
                             label: '堡垒正在用厚门与垛墙拖延时间',
                             heal: 10 + Math.min(14, Math.floor(enemyState.wallMaxHp * 0.1))
+                        };
+                    }
+                    if (enemyState.facilityType === 'FORTRESS') {
+                        return {
+                            type: 'attack',
+                            name: '箭塔齐射',
+                            label: '堡垒从箭塔与垛口发起压制射击',
+                            damageBonus: 2 + (enemyState.facilityLevel || 1),
+                            blockPierce: 1 + Math.floor((enemyState.facilityLevel || 1) / 2)
                         };
                     }
                     if (enemyState.facilityType === 'WORKSHOP' && enemyState.wallHp < enemyState.maxHp && round % 2 === 0) {
