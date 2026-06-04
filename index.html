@@ -135,7 +135,7 @@
             bottom: 24px;
             transform: translateX(-50%);
             display: none;
-            gap: 10px;
+            gap: 12px;
             pointer-events: auto;
             background: rgba(255,255,255,0.92);
             border: 4px solid #111;
@@ -143,6 +143,52 @@
             padding: 12px;
             box-shadow: 5px 5px 0 rgba(0,0,0,0.28);
             align-items: stretch;
+            min-width: min(760px, calc(100vw - 36px));
+        }
+        .battle-command-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-width: 220px;
+        }
+        .battle-command-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+        .battle-detail-panel {
+            display: flex;
+            align-items: stretch;
+            gap: 10px;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .battle-detail-copy {
+            min-width: 180px;
+            max-width: 220px;
+            padding: 10px;
+            border: 3px solid #111;
+            background: #fff8e8;
+            color: #111;
+            font-weight: 900;
+            box-shadow: 0 4px 0 #111;
+        }
+        .battle-detail-copy strong {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 16px;
+        }
+        .battle-detail-copy span {
+            display: block;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        .battle-skill-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: stretch;
+            min-width: 0;
         }
         #battle-status {
             position: absolute;
@@ -241,6 +287,15 @@
             transform: translateY(4px);
             box-shadow: none;
         }
+        .battle-command.skill {
+            background: #ffeaa7;
+        }
+        .battle-command.defend {
+            background: #dff9fb;
+        }
+        .battle-command.flee {
+            background: #ced6e0;
+        }
         .battle-card {
             min-width: 112px;
             max-width: 140px;
@@ -276,6 +331,9 @@
         }
         .battle-card.flee {
             background: #ced6e0;
+        }
+        .battle-card.back {
+            background: #f1f2f6;
         }
         .battle-card:active {
             transform: translateY(5px);
@@ -512,12 +570,7 @@
         <div id="hover-info"></div>
         <div id="battle-status"></div>
 
-        <div id="battle-ui">
-            <button class="battle-command" onclick="Game.chooseBattleCommand('attack')">攻击</button>
-            <button class="battle-command" onclick="Game.chooseBattleCommand('skill')">技能</button>
-            <button class="battle-command" onclick="Game.chooseBattleCommand('defend')">防御</button>
-            <button class="battle-command" onclick="Game.chooseBattleCommand('flee')">逃跑</button>
-        </div>
+        <div id="battle-ui"></div>
 
         <div id="msg-log"></div>
     </div>
@@ -3139,16 +3192,33 @@
                 }
             },
 
-            chooseBattleCommand(command) {
+            resolveBattleChoice(choice) {
                 if (!this.battleCommandResolver) return;
                 const resolve = this.battleCommandResolver;
                 this.battleCommandResolver = null;
-                document.getElementById('battle-ui').style.display = 'none';
-                resolve(command);
+                const battleUi = document.getElementById('battle-ui');
+                battleUi.style.display = 'none';
+                battleUi.innerHTML = '';
+                resolve(choice);
+            },
+
+            chooseBattleCommand(command) {
+                if (!this.battleCommandResolver) return;
+                const attacker = this.battleContext?.attacker || this.players[this.currentPlayerIndex];
+                if (command === 'skill') {
+                    this.renderBattleCommandUi(attacker, 'skills');
+                    return;
+                }
+                if (command === 'back') {
+                    this.renderBattleCommandUi(attacker, 'commands');
+                    return;
+                }
+                this.resolveBattleChoice(command);
             },
 
             waitForBattleCommand(attacker) {
-                this.renderBattleCards(attacker);
+                this.drawBattleCards(attacker, 3);
+                this.renderBattleCommandUi(attacker, 'commands');
                 return new Promise(resolve => {
                     this.battleCommandResolver = resolve;
                 });
@@ -3212,6 +3282,105 @@
                 battleUi.style.display = 'flex';
             },
 
+            getBattleCommandCopy(command) {
+                const copy = {
+                    attack: {
+                        title: '攻击',
+                        text: '稳定的基础攻击，不依赖手牌。适合保底输出，或者先试探敌方城墙和守军特性。'
+                    },
+                    skill: {
+                        title: '技能',
+                        text: '从这回合抽到的手牌里挑一张打出。这里保留了卡牌构筑层，爆发、治疗、强化都从这里来。'
+                    },
+                    defend: {
+                        title: '防御',
+                        text: '摆出防御姿态，降低即将到来的反击伤害。对守军反扑或者枪兵重击尤其有用。'
+                    },
+                    flee: {
+                        title: '逃跑',
+                        text: '尝试脱离战斗。对野怪更容易成功，攻城战则风险更高。'
+                    }
+                };
+                return copy[command] || copy.attack;
+            },
+
+            renderBattleCommandUi(player, mode = 'commands') {
+                const battleUi = document.getElementById('battle-ui');
+                battleUi.innerHTML = '';
+
+                const commandStack = document.createElement('div');
+                commandStack.className = 'battle-command-stack';
+
+                const hud = document.createElement('div');
+                hud.className = 'battle-deck-hud';
+                hud.innerHTML = `
+                    <div>抽牌堆 ${player.drawPile.length}</div>
+                    <div>弃牌堆 ${player.discardPile.length}</div>
+                    <div>手牌 ${this.battleHand.length}</div>
+                `;
+                commandStack.appendChild(hud);
+
+                const commandGrid = document.createElement('div');
+                commandGrid.className = 'battle-command-grid';
+                [
+                    { id: 'attack', label: '攻击', className: '' },
+                    { id: 'skill', label: '技能', className: 'skill' },
+                    { id: 'defend', label: '防御', className: 'defend' },
+                    { id: 'flee', label: '逃跑', className: 'flee' }
+                ].forEach(def => {
+                    const btn = document.createElement('button');
+                    btn.className = `battle-command ${def.className}`.trim();
+                    btn.innerText = def.label;
+                    btn.disabled = def.id === 'skill' && this.battleHand.length === 0;
+                    btn.onclick = () => this.chooseBattleCommand(def.id);
+                    commandGrid.appendChild(btn);
+                });
+                commandStack.appendChild(commandGrid);
+                battleUi.appendChild(commandStack);
+
+                const detailPanel = document.createElement('div');
+                detailPanel.className = 'battle-detail-panel';
+
+                const copyBox = document.createElement('div');
+                copyBox.className = 'battle-detail-copy';
+                const activeCopy = this.getBattleCommandCopy(mode === 'skills' ? 'skill' : 'attack');
+                copyBox.innerHTML = `<strong>${activeCopy.title}</strong><span>${activeCopy.text}</span>`;
+                detailPanel.appendChild(copyBox);
+
+                const cardRow = document.createElement('div');
+                cardRow.className = 'battle-skill-row';
+                if (mode === 'skills') {
+                    if (this.battleHand.length === 0) {
+                        const empty = document.createElement('div');
+                        empty.className = 'battle-detail-copy';
+                        empty.innerHTML = '<strong>技能空档</strong><span>这一回合没有抽到可用手牌，可以退回去选择普通攻击、防御或逃跑。</span>';
+                        cardRow.appendChild(empty);
+                    } else {
+                        this.battleHand.forEach((cardId, index) => {
+                            const card = this.cardLibrary[cardId];
+                            const btn = document.createElement('button');
+                            btn.className = 'battle-card';
+                            btn.onclick = () => this.chooseBattleCard(index);
+                            btn.innerHTML = `<strong>${card.name}</strong><em>${this.getCardKindLabel(card.kind)}</em><span>${card.text}</span>`;
+                            cardRow.appendChild(btn);
+                        });
+                    }
+                    const backBtn = document.createElement('button');
+                    backBtn.className = 'battle-card back';
+                    backBtn.onclick = () => this.chooseBattleCommand('back');
+                    backBtn.innerHTML = '<strong>返回</strong><span>回到攻击、技能、防御、逃跑四选一。</span>';
+                    cardRow.appendChild(backBtn);
+                } else {
+                    const hint = document.createElement('div');
+                    hint.className = 'battle-detail-copy';
+                    hint.innerHTML = `<strong>技能预览</strong><span>本回合已抽到 ${this.battleHand.length} 张手牌。点“技能”后，再从这些卡里挑一张打出。</span>`;
+                    cardRow.appendChild(hint);
+                }
+                detailPanel.appendChild(cardRow);
+                battleUi.appendChild(detailPanel);
+                battleUi.style.display = 'flex';
+            },
+
             getCardKindLabel(kind) {
                 const labels = {
                     attack: '攻击',
@@ -3227,10 +3396,7 @@
                 if (!this.battleCommandResolver) return;
                 const cardId = this.battleHand[index];
                 if (!cardId) return;
-                const resolve = this.battleCommandResolver;
-                this.battleCommandResolver = null;
-                document.getElementById('battle-ui').style.display = 'none';
-                resolve({ type: 'card', cardId });
+                this.resolveBattleChoice({ type: 'card', cardId });
             },
 
             getBattlePhaseLabel() {
