@@ -95,6 +95,8 @@
         .build-btn.income { background: #eccc68; color: #333; }
         .build-btn.heal { background: #7bed9f; color: #063b1f; }
         .build-btn.training { background: #ffb142; color: #332000; }
+        .build-btn.barracks { background: #ff7f50; color: white; }
+        .build-btn.workshop { background: #747d8c; color: white; }
         .build-btn.upgrade { background: #2ed573; color: #063b1f; }
         .build-btn.demolish { background: #57606f; color: white; }
         .build-btn.recruit { background: #ff9f1a; color: #211300; }
@@ -473,6 +475,8 @@
                 <button id="btn-build-income" class="build-btn income" onclick="Game.buildFacility('INCOME')">金矿 (100G)</button>
                 <button id="btn-build-heal" class="build-btn heal" onclick="Game.buildFacility('HEAL')">治疗营地 (90G)</button>
                 <button id="btn-build-training" class="build-btn training" onclick="Game.buildFacility('TRAINING')">训练营 (120G)</button>
+                <button id="btn-build-barracks" class="build-btn barracks" onclick="Game.buildFacility('BARRACKS')">兵营 (110G)</button>
+                <button id="btn-build-workshop" class="build-btn workshop" onclick="Game.buildFacility('WORKSHOP')">城防工坊 (130G)</button>
                 <button id="btn-upgrade-facility" class="build-btn upgrade" onclick="Game.upgradeSelectedFacility()">升级</button>
                 <button id="btn-recruit-guard" class="build-btn recruit" onclick="Game.recruitGuardForSelectedFacility()">招募守军</button>
                 <button id="btn-transfer-guard" class="build-btn transfer" onclick="Game.openGuardTransferMenu()">调防守军</button>
@@ -624,7 +628,9 @@
                 GUARD: { name: '守卫哨站', cost: 80, color: 0xff4757, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 1 },
                 INCOME: { name: '金矿', cost: 100, color: 0xeccc68, maxLevel: 3, baseDefense: 14, allowsGuards: true, guardSlots: 1 },
                 HEAL: { name: '治疗营地', cost: 90, color: 0x7bed9f, maxLevel: 3, baseDefense: 12, allowsGuards: true, guardSlots: 1 },
-                TRAINING: { name: '训练营', cost: 120, color: 0xffb142, maxLevel: 3, baseDefense: 16, allowsGuards: true, guardSlots: 1 }
+                TRAINING: { name: '训练营', cost: 120, color: 0xffb142, maxLevel: 3, baseDefense: 16, allowsGuards: true, guardSlots: 1 },
+                BARRACKS: { name: '兵营', cost: 110, color: 0xff7f50, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 2 },
+                WORKSHOP: { name: '城防工坊', cost: 130, color: 0x747d8c, maxLevel: 3, baseDefense: 24, allowsGuards: false, guardSlots: 0 }
             },
             guardArchetypes: [
                 { key: 'SHIELD', name: '盾卫', maxHp: 28, atk: 4, color: 0x70a1ff },
@@ -1456,6 +1462,16 @@
                 );
             },
 
+            getNodeOwnedFacilities(owner) {
+                if (!this.activeNode || !owner) return [];
+                return this.activeNode.slots.filter(slot => slot.owner === owner && slot.type !== 'EMPTY');
+            },
+
+            getNodeOtherOwnedFacilities(slot) {
+                if (!slot?.owner) return [];
+                return this.getNodeOwnedFacilities(slot.owner).filter(other => other !== slot);
+            },
+
             resetGuardTransferMenu() {
                 this.guardTransferSource = null;
                 const options = document.getElementById('guard-transfer-options');
@@ -1503,7 +1519,7 @@
             },
 
             setBuildMenuButtons(mode) {
-                const buildIds = ['btn-build-trap', 'btn-build-guard', 'btn-build-income', 'btn-build-heal', 'btn-build-training'];
+                const buildIds = ['btn-build-trap', 'btn-build-guard', 'btn-build-income', 'btn-build-heal', 'btn-build-training', 'btn-build-barracks', 'btn-build-workshop'];
                 document.querySelector('.build-options').style.display = 'flex';
                 const player = this.players[this.currentPlayerIndex];
                 buildIds.forEach(id => {
@@ -2113,6 +2129,44 @@
                     });
                     this.log(`训练营鼓舞士气，ATK +${atkGain}。`);
                     this.createFloatingText(`ATK +${atkGain}`, player.meshGroup.position, "#ffb142");
+                } else if (slot.type === 'BARRACKS') {
+                    const guardHeal = 7 + slot.level * 3;
+                    let trained = 0;
+                    slot.guards.forEach(guard => {
+                        guard.hp = Math.min(guard.maxHp, guard.hp + guardHeal);
+                        guard.atk += 1;
+                        trained += 1;
+                    });
+                    if (slot.guards.length < this.getGuardCapacity(slot) && slot.level >= 2) {
+                        const recruit = this.createGuard(slot);
+                        recruit.name = `预备${recruit.name}`;
+                        recruit.hp = Math.max(14, recruit.hp - 6);
+                        recruit.maxHp = recruit.hp;
+                        slot.guards.push(recruit);
+                        trained += 1;
+                        this.updateGuardMarkers(slot);
+                        this.log(`兵营补入一名预备守军，并完成全员操练。`);
+                        this.createFloatingText("+预备守军", slot.mesh.position, "#ff7f50");
+                    } else if (trained === 0) {
+                        slot.defense += 2 + slot.level;
+                        this.updateFacilityVisual(slot);
+                        this.log(`兵营暂时空置，营地守备改为加固栅栏，防御 +${2 + slot.level}。`);
+                        this.createFloatingText(`营门加固 +${2 + slot.level}`, slot.mesh.position, "#ff7f50");
+                    } else {
+                        this.log(`兵营完成整训，${slot.guards.length} 名守军恢复 ${guardHeal} HP 并获得 +1 ATK。`);
+                        this.createFloatingText(`整训 x${Math.max(1, trained)}`, slot.mesh.position, "#ff7f50");
+                    }
+                } else if (slot.type === 'WORKSHOP') {
+                    const selfFortify = 4 + slot.level * 2;
+                    slot.defense += selfFortify;
+                    const others = this.getNodeOtherOwnedFacilities(slot);
+                    others.forEach(other => {
+                        other.defense += 2 + slot.level;
+                        this.updateFacilityVisual(other);
+                    });
+                    this.updateFacilityVisual(slot);
+                    this.log(`城防工坊加固了城墙，本体防御 +${selfFortify}${others.length > 0 ? `，并强化同路口 ${others.length} 座友方建筑` : ''}。`);
+                    this.createFloatingText(`墙体加固 +${selfFortify}`, slot.mesh.position, "#747d8c");
                 }
                 await this.wait(260);
             },
@@ -2253,6 +2307,41 @@
                     slot.owner.atk += atkGain;
                     this.log(`敌方训练营强化了 ${slot.owner.name}，ATK +${atkGain}。`);
                     this.createFloatingText(`敌方ATK +${atkGain}`, slot.mesh.position, "#ffb142");
+                } else if (slot.type === 'BARRACKS') {
+                    const guardHeal = 6 + slot.level * 2;
+                    slot.guards.forEach(guard => {
+                        guard.hp = Math.min(guard.maxHp, guard.hp + guardHeal);
+                        guard.atk += 1;
+                    });
+                    if (slot.guards.length < this.getGuardCapacity(slot) && slot.level >= 2) {
+                        const recruit = this.createGuard(slot);
+                        recruit.name = `敌方${recruit.name}`;
+                        recruit.hp = Math.max(14, recruit.hp - 4);
+                        recruit.maxHp = recruit.hp;
+                        slot.guards.push(recruit);
+                        this.updateGuardMarkers(slot);
+                        this.log(`敌方兵营吹响集结号，又补上了一名守军。`);
+                        this.createFloatingText("敌方增援", slot.mesh.position, "#ff7f50");
+                    } else if (slot.guards.length === 0) {
+                        slot.defense += 2 + slot.level;
+                        this.updateFacilityVisual(slot);
+                        this.log(`敌方兵营虽然空着，但临时加高了拒马和栅栏。`);
+                        this.createFloatingText("敌方扎营", slot.mesh.position, "#ff7f50");
+                    } else {
+                        this.log(`敌方兵营整训了驻军，后续守军更难对付。`);
+                        this.createFloatingText("敌方整训", slot.mesh.position, "#ff7f50");
+                    }
+                } else if (slot.type === 'WORKSHOP') {
+                    const selfFortify = 5 + slot.level * 2;
+                    slot.defense += selfFortify;
+                    const others = this.getNodeOtherOwnedFacilities(slot);
+                    others.forEach(other => {
+                        other.defense += 3 + slot.level;
+                        this.updateFacilityVisual(other);
+                    });
+                    this.updateFacilityVisual(slot);
+                    this.log(`敌方城防工坊抢先加固了防线，墙体明显更厚了。`);
+                    this.createFloatingText("敌方加固", slot.mesh.position, "#747d8c");
                 }
 
                 await this.wait(260);
@@ -2411,7 +2500,7 @@
                 }
 
                 const emptySlot = slots.find(s => s.type === 'EMPTY' && !s.monster);
-                const preferredTypes = ['GUARD', 'INCOME', 'HEAL', 'TRAINING', 'TRAP'];
+                const preferredTypes = ['BARRACKS', 'WORKSHOP', 'GUARD', 'INCOME', 'HEAL', 'TRAINING', 'TRAP'];
                 const types = preferredTypes.filter(type => player.gold >= this.facilityConfigs[type].cost);
                 if (emptySlot && types.length > 0) {
                     this.selectedSlot = emptySlot;
@@ -2448,7 +2537,7 @@
                     document.getElementById('build-desc').innerText = `${slot.monster.name} 占着这块地。打败它后才能在这里建造。胜利不消耗行动，失败会消耗行动。`;
                 } else if (slot.type === 'EMPTY') {
                     this.setBuildMenuButtons('build');
-                    document.getElementById('build-desc').innerText = "选择要建造的设施。建造会消耗当前行动。";
+                    document.getElementById('build-desc').innerText = "选择要建造的设施。兵营偏向练兵和补守军，城防工坊偏向堆墙和抬高攻城难度。建造会消耗当前行动。";
                 } else if (slot.owner === player) {
                     this.setBuildMenuButtons('owned');
                     const upgradeBtn = document.getElementById('btn-upgrade-facility');
@@ -3547,6 +3636,8 @@
                     if(type === 'INCOME') { fColor = config.color; geom = new THREE.OctahedronGeometry(0.6); }
                     if(type === 'HEAL') { fColor = config.color; geom = new THREE.CylinderGeometry(0.7, 0.7, 0.42, 16); }
                     if(type === 'TRAINING') { fColor = config.color; geom = new THREE.ConeGeometry(0.72, 1.05, 4); }
+                    if(type === 'BARRACKS') { fColor = config.color; geom = new THREE.BoxGeometry(1.0, 0.9, 0.8); }
+                    if(type === 'WORKSHOP') { fColor = config.color; geom = new THREE.CylinderGeometry(0.78, 0.9, 0.7, 6); }
 
                     const mesh = new THREE.Mesh(geom, new THREE.MeshToonMaterial({color: fColor}));
                     

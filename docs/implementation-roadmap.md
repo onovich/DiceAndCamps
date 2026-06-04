@@ -107,6 +107,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Strengthened pre-battle taunts with jagged comic panels, speaker labels, and monster/facility-specific lines.
 - Expanded the garrison layer with typed guards, owned guard-post training events, action-phase guard transfers, richer facility hover info, and AI guard reassignments.
 - Split facility battles into wall-first and guard-follow-up phases so enemy defenders actually hide behind fortifications before being forced into the open.
+- Added barracks and wall-workshop facilities so guard training, reinforcements, and fortification growth have clearer building identities for both player and AI turns.
 
 ## Validation Gates
 
