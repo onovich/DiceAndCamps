@@ -1715,29 +1715,32 @@
             },
 
             getBuildingBattlePreview(slot) {
-                const hasGuard = slot.guards.length > 0 || slot.type === 'GUARD';
+                const hasGuard = slot.guards.length > 0;
                 const roleCounts = this.getGuardRoleCounts(slot);
                 const wallHp = Math.max(28, slot.defense * 2);
-                const freeGuardHp = slot.type === 'GUARD' && slot.guards.length === 0 ? 24 + slot.level * 8 : 0;
-                const guardHp = slot.guards.reduce((sum, guard) => sum + guard.hp, 0) + freeGuardHp;
+                const emptyGuardPostWallBonus = slot.type === 'GUARD' && !hasGuard ? 10 + slot.level * 6 : 0;
+                const emptyGuardPostArmorBonus = slot.type === 'GUARD' && !hasGuard ? 2 + slot.level : 0;
+                const guardHp = slot.guards.reduce((sum, guard) => sum + guard.hp, 0);
                 const guardAtk = slot.guards.reduce((sum, guard) => sum + guard.atk, 0);
                 const fortressWallBonus = slot.type === 'FORTRESS' ? 18 + slot.level * 10 : 0;
                 const fortressArmorBonus = slot.type === 'FORTRESS' ? 4 + slot.level * 2 : 0;
-                const wallArmor = roleCounts.SHIELD * 3 + (slot.type === 'WORKSHOP' ? 2 + slot.level : 0) + fortressArmorBonus;
+                const wallArmor = roleCounts.SHIELD * 3 + (slot.type === 'WORKSHOP' ? 2 + slot.level : 0) + fortressArmorBonus + emptyGuardPostArmorBonus;
                 const guardArmor = roleCounts.SHIELD * 2 + (slot.type === 'COMMAND' ? 1 + Math.floor(slot.level / 2) : 0);
                 const dodgeChance = Math.min(0.36, roleCounts.SCOUT * 0.08);
                 const counterBonus = roleCounts.SPEAR * 2;
-                const fortifiedWallHp = wallHp + roleCounts.SHIELD * 10 + fortressWallBonus;
-                const wallAtk = 3 + slot.level + Math.ceil(guardAtk * 0.45) + roleCounts.SPEAR + (slot.type === 'FORTRESS' ? 2 + slot.level : 0);
+                const fortifiedWallHp = wallHp + roleCounts.SHIELD * 10 + fortressWallBonus + emptyGuardPostWallBonus;
+                const wallAtk = 3 + slot.level + Math.ceil(guardAtk * 0.45) + roleCounts.SPEAR + (slot.type === 'FORTRESS' ? 2 + slot.level : 0) + (slot.type === 'GUARD' && !hasGuard ? 1 + slot.level : 0);
                 const commandBonus = slot.type === 'COMMAND' ? 2 + roleCounts.total : 0;
                 const guardPhaseAtk = hasGuard ? 5 + slot.level * 2 + guardAtk + counterBonus + roleCounts.SCOUT + commandBonus : wallAtk;
                 const atk = hasGuard ? wallAtk : guardPhaseAtk;
                 const hp = fortifiedWallHp + guardHp;
                 const battlePlan = slot.type === 'FORTRESS'
                     ? '只有厚重堡墙，但会持续加固并压制来犯者'
+                    : (slot.type === 'GUARD' && !hasGuard
+                    ? '空哨站没有守军，只有更厚的墙体与岗楼火力'
                     : (slot.type === 'COMMAND' && hasGuard
                     ? '守军会在指挥所号令下整队反扑'
-                    : (hasGuard ? '守军躲在城墙后' : '只有城墙'));
+                    : (hasGuard ? '守军躲在城墙后' : '只有城墙')));
                 return {
                     hasGuard,
                     wallHp: fortifiedWallHp,
