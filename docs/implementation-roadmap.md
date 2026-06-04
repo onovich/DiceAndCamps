@@ -110,6 +110,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added barracks and wall-workshop facilities so guard training, reinforcements, and fortification growth have clearer building identities for both player and AI turns.
 - Made guard archetypes mechanically matter in siege fights with shield-based wall mitigation, scout-style evasion, and clearer role readouts in enemy challenge previews.
 - Reworked the battle command surface into explicit Attack, Skill, Defend, and Flee choices, while keeping deck-drawn cards as a secondary skill layer.
+- Gave enemy turns more JRPG identity with phase-aware actions like emergency wall repairs, guard rally turns, and role-driven counter moves instead of a single flat retaliation pattern.
 
 ## Validation Gates
 

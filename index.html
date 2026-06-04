@@ -2802,6 +2802,7 @@
                     hp: preview.wallHp,
                     maxHp: preview.wallHp,
                     atk: preview.atk,
+                    facilityType: slot.type,
                     facilityName: this.getFacilityName(slot),
                     wallHp: preview.wallHp,
                     wallMaxHp: preview.wallHp,
@@ -2830,6 +2831,8 @@
                         atk: enemy.atk || enemy.wallAtk || 4,
                         phase: 'wall',
                         phaseLabel: enemy.hasGuard ? '先破城墙，再逼出守军' : '摧毁城墙即可获胜',
+                        intentLabel: '',
+                        facilityType: enemy.facilityType,
                         facilityName: enemy.facilityName,
                         wallHp: enemy.wallHp,
                         wallMaxHp: enemy.wallMaxHp || enemy.wallHp,
@@ -2852,7 +2855,9 @@
                     maxHp: enemy.maxHp || enemy.hp,
                     atk: enemy.atk || 4,
                     phase: 'single',
-                    phaseLabel: kind === 'monster' ? '击败野怪即可清空地块' : '常规战斗'
+                    phaseLabel: kind === 'monster' ? '击败野怪即可清空地块' : '常规战斗',
+                    intentLabel: '',
+                    facilityType: enemy.facilityType || null
                 };
             },
 
@@ -3416,6 +3421,13 @@
                 return Math.max(0, Math.min(100, (current / max) * 100));
             },
 
+            getEnemyBattleStatusLine(enemyState) {
+                const phase = enemyState?.phaseLabel || '';
+                const intent = enemyState?.intentLabel || '';
+                if (phase && intent) return `${phase} / ${intent}`;
+                return phase || intent;
+            },
+
             updateBattleStatus(attacker, enemyState, round = 0) {
                 const status = document.getElementById('battle-status');
                 if (!status || !attacker || !enemyState) return;
@@ -3433,7 +3445,7 @@
                     <div class="battle-status-card enemy">
                         <div class="battle-status-name"><span>${this.escapeHtml(enemyState.name)}</span><span>${enemyHp}/${enemyState.maxHp}</span></div>
                         <div class="battle-status-bar"><div class="battle-status-fill" style="width:${enemyPct}%"></div></div>
-                        <div class="battle-status-sub">${this.escapeHtml(enemyState.phaseLabel || '')}</div>
+                        <div class="battle-status-sub">${this.escapeHtml(this.getEnemyBattleStatusLine(enemyState) || '')}</div>
                     </div>
                 `;
                 status.style.display = 'flex';
@@ -3452,6 +3464,89 @@
                 if (attacker.hp < attacker.maxHp * 0.35 && round % 2 === 0) return 'defend';
                 if (enemyState.hp > attacker.atk + 12 && Math.random() < 0.45) return 'skill';
                 return 'attack';
+            },
+
+            chooseEnemyBattleAction(enemyState, kind, round) {
+                if (kind === 'monster') {
+                    if (enemyState.hp <= enemyState.maxHp * 0.45) {
+                        return {
+                            type: 'attack',
+                            name: '狂扑',
+                            label: '野怪蓄力猛扑',
+                            damageBonus: 3,
+                            blockPierce: 1
+                        };
+                    }
+                    return {
+                        type: 'attack',
+                        name: round % 2 === 0 ? '撕咬' : '拍击',
+                        label: '野怪正面突袭',
+                        damageBonus: round % 2 === 0 ? 2 : 0,
+                        blockPierce: 0
+                    };
+                }
+
+                if (enemyState.phase === 'wall') {
+                    if (enemyState.facilityType === 'WORKSHOP' && enemyState.wallHp < enemyState.maxHp && round % 2 === 0) {
+                        return {
+                            type: 'fortify',
+                            name: '紧急修墙',
+                            label: '城防工坊正在修补墙体',
+                            heal: 8 + Math.min(10, Math.floor(enemyState.wallMaxHp * 0.08))
+                        };
+                    }
+                    if ((enemyState.roleCounts?.SHIELD || 0) > 0 && round % 3 === 1) {
+                        return {
+                            type: 'attack',
+                            name: '盾墙震击',
+                            label: '盾卫顶在墙后发动重撞',
+                            damageBonus: 2 + enemyState.roleCounts.SHIELD,
+                            blockPierce: 1
+                        };
+                    }
+                    return {
+                        type: 'attack',
+                        name: '碎石压落',
+                        label: '城墙上有碎石滚落',
+                        damageBonus: 1,
+                        blockPierce: 0
+                    };
+                }
+
+                if (enemyState.facilityType === 'BARRACKS' && round % 2 === 0) {
+                    return {
+                        type: 'buff',
+                        name: '战吼整队',
+                        label: '兵营守军正在重整队形',
+                        atkGain: 2 + Math.min(3, enemyState.roleCounts?.total || 0),
+                        heal: 5 + (enemyState.roleCounts?.total || 0) * 2
+                    };
+                }
+                if ((enemyState.roleCounts?.SPEAR || 0) > 0) {
+                    return {
+                        type: 'attack',
+                        name: '长枪突刺',
+                        label: '枪兵瞄准破绽发起穿刺',
+                        damageBonus: 3 + enemyState.roleCounts.SPEAR,
+                        blockPierce: 2 + enemyState.roleCounts.SPEAR
+                    };
+                }
+                if ((enemyState.roleCounts?.SCOUT || 0) > 0 && round % 2 === 1) {
+                    return {
+                        type: 'attack',
+                        name: '影袭突进',
+                        label: '斥候正在绕侧突袭',
+                        damageBonus: 2 + enemyState.roleCounts.SCOUT,
+                        blockPierce: 1
+                    };
+                }
+                return {
+                    type: 'attack',
+                    name: '正面反击',
+                    label: '守军准备正面反扑',
+                    damageBonus: 1,
+                    blockPierce: 0
+                };
             },
 
             async showBattleResult(victory, fled = false) {
@@ -3622,6 +3717,7 @@
                 let fled = false;
                 for (let round = 1; round <= 8 && attacker.hp > 0 && enemyState.hp > 0; round++) {
                     this.setBattlePhase(BattlePhase.ATTACKER_TURN, { round });
+                    enemyState.intentLabel = '';
                     this.updateBattleStatus(attacker, enemyState, round);
                     this.log(`选择行动：${attacker.name} HP ${attacker.hp}/${attacker.maxHp}，${enemyState.name} HP ${Math.max(0, enemyState.hp)}/${enemyState.maxHp}`);
                     const command = attacker.isPlayer
@@ -3713,14 +3809,44 @@
                     if (enemyState.hp <= 0 || fled) break;
 
                     this.setBattlePhase(BattlePhase.ENEMY_TURN, { round });
+                    const enemyAction = this.chooseEnemyBattleAction(enemyState, kind, round);
+                    enemyState.intentLabel = enemyAction.label || enemyAction.name;
                     this.updateBattleStatus(attacker, enemyState, round);
-                    const incoming = Math.max(1, enemyState.atk + Math.floor(Math.random() * 4) - (defend ? blockValue : 0));
                     await this.focusBattleCamera(enemyMesh || enemyPos, 1.58, 220);
+                    this.log(`${enemyState.name} 使出了 ${enemyAction.name}！`);
+                    this.createFloatingText(enemyAction.name, enemyPos, "#ff9f43");
+
+                    if (enemyAction.type === 'fortify') {
+                        enemyState.hp = Math.min(enemyState.maxHp, enemyState.hp + enemyAction.heal);
+                        if (enemyState.phase === 'wall') enemyState.wallHp = enemyState.hp;
+                        this.updateBattleStatus(attacker, enemyState, round);
+                        this.showDefendEffect(enemyMesh || attacker.meshGroup, enemyAction.heal);
+                        this.createFloatingText(`+${enemyAction.heal}`, enemyPos, "#2ed573");
+                        await this.wait(360);
+                        continue;
+                    }
+
+                    if (enemyAction.type === 'buff') {
+                        enemyState.atk += enemyAction.atkGain;
+                        enemyState.hp = Math.min(enemyState.maxHp, enemyState.hp + enemyAction.heal);
+                        if (enemyState.phase === 'guard') enemyState.guardHp = enemyState.hp;
+                        this.updateBattleStatus(attacker, enemyState, round);
+                        this.createFloatingText(`ATK +${enemyAction.atkGain}`, enemyPos, "#ffb142");
+                        this.createFloatingText(`+${enemyAction.heal}`, enemyPos, "#2ed573");
+                        await this.wait(360);
+                        continue;
+                    }
+
+                    const effectiveBlock = Math.max(0, (defend ? blockValue : 0) - (enemyAction.blockPierce || 0));
+                    const incoming = Math.max(1, enemyState.atk + (enemyAction.damageBonus || 0) + Math.floor(Math.random() * 4) - effectiveBlock);
                     await this.playCounterAttack(enemyMesh, attacker.meshGroup);
                     attacker.hp -= incoming;
                     this.updateBattleStatus(attacker, enemyState, round);
                     this.screenFlash();
                     this.createFloatingText(`-${incoming}`, attacker.meshGroup.position, "#ff0000");
+                    if ((enemyAction.blockPierce || 0) > 0 && defend) {
+                        this.createFloatingText(`破防 ${enemyAction.blockPierce}`, attacker.meshGroup.position, "#ffa502");
+                    }
                     this.showHitEffect(attacker.meshGroup, defend ? 0x70a1ff : 0xff4757);
                     await this.focusBattleCamera(attacker.meshGroup, 1.72, 180);
                     await this.wait(380);
