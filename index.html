@@ -1039,10 +1039,10 @@
                 for (let i = 0; i < 4; i++) {
                     // 角色模型：球体 + 挤压变形组
                     const group = new THREE.Group();
-                    const geom = new THREE.SphereGeometry(0.38, 16, 16);
+                    const geom = new THREE.SphereGeometry(0.32, 16, 16);
                     const mat = new THREE.MeshToonMaterial({ color: colors[i] });
                     const mesh = new THREE.Mesh(geom, mat);
-                    mesh.position.y = 0.45;
+                    mesh.position.y = 0.43;
                     mesh.castShadow = true;
 
                     // 背面膨胀描边法 (BackSide Outline)
@@ -1051,13 +1051,21 @@
                     outlineMesh.scale.set(1.12, 1.12, 1.12);
                     mesh.add(outlineMesh);
 
-                    group.add(mesh);
+                    const stancePad = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.26, 0.32, 0.045, 18),
+                        new THREE.MeshToonMaterial({ color: colors[i] })
+                    );
+                    stancePad.position.y = 0.04;
+                    stancePad.castShadow = false;
+                    stancePad.receiveShadow = true;
+
+                    group.add(stancePad, mesh);
                     group.position.set(this.nodes[0].x, 0.25, this.nodes[0].z);
                     this.scene.add(group);
 
                     this.players.push({
                         id: i, isPlayer: i === 0, name: names[i], color: colors[i],
-                        meshGroup: group, bodyMesh: mesh,
+                        meshGroup: group, bodyMesh: mesh, stancePad,
                         nodeIndex: 0,
                         hp: 50, maxHp: 50, atk: 10, gold: 200, exp: 0, level: 1,
                         deck: ['STRIKE', 'STRIKE', 'STRIKE', 'GUARD_UP', 'GUARD_UP', 'FIREBALL'],
@@ -1093,16 +1101,40 @@
                 );
             },
 
+            animateStandShift(player, target) {
+                const lift = Math.max(player.meshGroup.position.y, target.y) + 0.18;
+                new TWEEN.Tween(player.meshGroup.position)
+                    .to({ x: target.x, y: lift, z: target.z }, 190)
+                    .easing(TWEEN.Easing.Back.Out)
+                    .onComplete(() => {
+                        new TWEEN.Tween(player.meshGroup.position)
+                            .to({ x: target.x, y: target.y, z: target.z }, 210)
+                            .easing(TWEEN.Easing.Bounce.Out)
+                            .start();
+                    })
+                    .start();
+                new TWEEN.Tween(player.meshGroup.rotation)
+                    .to({ z: player.id % 2 === 0 ? 0.18 : -0.18 }, 120)
+                    .yoyo(true)
+                    .repeat(1)
+                    .easing(TWEEN.Easing.Quadratic.Out)
+                    .onComplete(() => { player.meshGroup.rotation.z = 0; })
+                    .start();
+                new TWEEN.Tween(player.bodyMesh.scale)
+                    .to({ x: 1.08, y: 0.92, z: 1.08 }, 100)
+                    .yoyo(true)
+                    .repeat(1)
+                    .easing(TWEEN.Easing.Quadratic.Out)
+                    .start();
+            },
+
             reflowNodeOccupants(nodeIndex, animated = true, excludePlayer = null) {
                 const occupants = this.getPlayersOnNode(nodeIndex);
                 occupants.forEach(player => {
                     if (excludePlayer && player.id === excludePlayer.id) return;
                     const target = this.getNodeStandPosition(nodeIndex, player, occupants);
                     if (animated) {
-                        new TWEEN.Tween(player.meshGroup.position)
-                            .to({ x: target.x, y: target.y, z: target.z }, 360)
-                            .easing(TWEEN.Easing.Back.Out)
-                            .start();
+                        this.animateStandShift(player, target);
                     } else {
                         player.meshGroup.position.copy(target);
                     }
@@ -3288,7 +3320,7 @@
                 const time = Date.now() * 0.003;
                 this.players.forEach(player => {
                     if(this.state !== TurnState.MOVING || player.id !== this.currentPlayerIndex) {
-                       player.bodyMesh.position.y = 0.45 + Math.sin(time + player.id)*0.04;
+                       player.bodyMesh.position.y = 0.43 + Math.sin(time + player.id)*0.04;
                     }
                 });
 

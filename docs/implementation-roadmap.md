@@ -103,6 +103,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added shared building battle previews for hover panels, enemy challenge menus, and wall/guard combat stats.
 - Added AI building management so opponents recruit guards and upgrade owned facilities before building new ones.
 - Added snapshot-based dice occluder fading so nearby buildings and guard markers fade during dice rolls and restore exactly afterward.
+- Refined shared road-node stances with smaller character bodies, colored stance pads, and bouncy reflow animations.
 
 ## Validation Gates
 
