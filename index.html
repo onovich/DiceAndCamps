@@ -1490,6 +1490,16 @@
                 ]).filter(Boolean);
             },
 
+            snapshotDiceMaterial(material) {
+                this.diceOccluderSnapshots.push({
+                    material,
+                    transparent: material.transparent,
+                    opacity: material.opacity,
+                    depthWrite: material.depthWrite,
+                    depthTest: material.depthTest
+                });
+            },
+
             fadeDiceOccluders(node, opacity = 0.36) {
                 this.restoreDiceOccluders();
                 this.getDiceOccluderMeshes(node).forEach(root => {
@@ -1497,15 +1507,29 @@
                         if (!child.material) return;
                         const materials = Array.isArray(child.material) ? child.material : [child.material];
                         materials.forEach(material => {
-                            this.diceOccluderSnapshots.push({
-                                material,
-                                transparent: material.transparent,
-                                opacity: material.opacity,
-                                depthWrite: material.depthWrite
-                            });
+                            this.snapshotDiceMaterial(material);
                             material.transparent = opacity < 1;
                             material.opacity = opacity;
                             material.depthWrite = opacity >= 1;
+                            material.depthTest = true;
+                            material.needsUpdate = true;
+                        });
+                    });
+                });
+            },
+
+            liftDiceAboveCharacters() {
+                const roots = [
+                    ...this.players.map(player => player.meshGroup).filter(Boolean),
+                    ...this.monsters.map(monster => monster.meshGroup).filter(Boolean)
+                ];
+                roots.forEach(root => {
+                    root.traverse(child => {
+                        if (!child.material) return;
+                        const materials = Array.isArray(child.material) ? child.material : [child.material];
+                        materials.forEach(material => {
+                            this.snapshotDiceMaterial(material);
+                            material.depthWrite = false;
                             material.needsUpdate = true;
                         });
                     });
@@ -1517,6 +1541,7 @@
                     snapshot.material.transparent = snapshot.transparent;
                     snapshot.material.opacity = snapshot.opacity;
                     snapshot.material.depthWrite = snapshot.depthWrite;
+                    snapshot.material.depthTest = snapshot.depthTest;
                     snapshot.material.needsUpdate = true;
                 });
                 this.diceOccluderSnapshots = [];
@@ -2179,6 +2204,7 @@
                 const p = this.players[this.currentPlayerIndex];
                 const activeDiceNode = this.nodes[p.nodeIndex];
                 this.fadeDiceOccluders(activeDiceNode, 0.36);
+                this.liftDiceAboveCharacters();
                 this.cameraOffset.set(0,0,0); // 视角归位
 
                 // 3D 实体骰子特效
@@ -2186,8 +2212,8 @@
                 for(let i=1; i<=6; i++) {
                     materials.push(new THREE.MeshBasicMaterial({
                         map: createDiceTexture(i),
-                        depthTest: false,
-                        depthWrite: false
+                        depthTest: true,
+                        depthWrite: true
                     }));
                 }
                 const diceGeom = new THREE.BoxGeometry(1.5, 1.5, 1.5);
@@ -2196,14 +2222,14 @@
                 dice.position.copy(p.meshGroup.position);
                 dice.position.y += 0.9;
                 dice.scale.set(0.45, 0.45, 0.45);
-                dice.renderOrder = 1000;
+                dice.renderOrder = 12;
                 dice.traverse(child => {
-                    child.renderOrder = 1000;
+                    child.renderOrder = 12;
                     if (!child.material) return;
                     const childMaterials = Array.isArray(child.material) ? child.material : [child.material];
                     childMaterials.forEach(material => {
-                        material.depthTest = false;
-                        material.depthWrite = false;
+                        material.depthTest = true;
+                        material.depthWrite = true;
                     });
                 });
                 this.scene.add(dice);
