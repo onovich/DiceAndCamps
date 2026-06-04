@@ -608,6 +608,7 @@
                 <button id="btn-challenge-facility" class="build-btn challenge" onclick="Game.challengeSelectedFacility()">挑战建筑</button>
                 <button class="build-btn cancel" onclick="Game.closeBuildMenu()">返回选择</button>
             </div>
+            <div id="guard-recruit-options" class="build-options" style="display:none;"></div>
             <div id="guard-transfer-options" class="build-options" style="display:none;"></div>
         </div>
 
@@ -1552,8 +1553,25 @@
                 return this.guardRecruitCost + slot.guards.length * 25 + Math.max(0, slot.level - 1) * 10;
             },
 
-            createGuard(slot) {
-                const archetype = this.guardArchetypes[(slot.guards.length + slot.level - 1) % this.guardArchetypes.length];
+            getGuardArchetype(preferredKey = null, slot = null) {
+                if (preferredKey) {
+                    const explicit = this.guardArchetypes.find(guard => guard.key === preferredKey);
+                    if (explicit) return explicit;
+                }
+                if (slot?.type === 'WORKSHOP' || slot?.type === 'GUARD') {
+                    return this.guardArchetypes.find(guard => guard.key === 'SHIELD');
+                }
+                if (slot?.type === 'BARRACKS' || slot?.type === 'TRAINING') {
+                    return this.guardArchetypes.find(guard => guard.key === 'SPEAR');
+                }
+                if (slot?.type === 'HEAL' || slot?.type === 'INCOME') {
+                    return this.guardArchetypes.find(guard => guard.key === 'SCOUT');
+                }
+                return this.guardArchetypes[(slot.guards.length + slot.level - 1) % this.guardArchetypes.length];
+            },
+
+            createGuard(slot, preferredKey = null) {
+                const archetype = this.getGuardArchetype(preferredKey, slot);
                 const index = slot.guards.length + 1;
                 return {
                     key: archetype.key,
@@ -1596,6 +1614,21 @@
                 return traits.length > 0 ? traits.join(' / ') : '暂无守军特性';
             },
 
+            getGuardRecruitMenuCopy(archetype, slot) {
+                const levelBoost = slot?.level || 1;
+                const baseHp = archetype.maxHp + levelBoost * 5;
+                const baseAtk = archetype.atk + levelBoost * 2;
+                const traitText = {
+                    SHIELD: '顶在最前面，显著提高城墙与守军的减伤。',
+                    SPEAR: '反击更狠，容易打出破防式的穿刺压力。',
+                    SCOUT: '更灵活，能给守军阶段带来闪避和绕侧突袭。'
+                };
+                return {
+                    title: `${archetype.name} (${baseHp}HP / ${baseAtk}ATK)`,
+                    text: traitText[archetype.key] || '可部署守军。'
+                };
+            },
+
             getTransferTargets(slot, owner) {
                 if (!slot || !owner) return [];
                 return this.activeNode.slots.filter(other =>
@@ -1619,9 +1652,12 @@
 
             resetGuardTransferMenu() {
                 this.guardTransferSource = null;
-                const options = document.getElementById('guard-transfer-options');
-                options.innerHTML = '';
-                options.style.display = 'none';
+                const transferOptions = document.getElementById('guard-transfer-options');
+                transferOptions.innerHTML = '';
+                transferOptions.style.display = 'none';
+                const recruitOptions = document.getElementById('guard-recruit-options');
+                recruitOptions.innerHTML = '';
+                recruitOptions.style.display = 'none';
                 document.querySelector('#build-menu .build-options').style.display = 'flex';
             },
 
@@ -1895,6 +1931,7 @@
                     ${this.infoRow('守军', guardText)}
                     ${this.infoRow('驻军编成', this.getGuardSummary(slot, ' | '))}
                     ${this.infoRow('守军特性', this.getGuardTraitSummary(slot))}
+                    ${this.infoRow('推荐补员', this.getGuardArchetype(null, slot)?.name || '通用守军')}
                     ${this.infoRow('防守类型', preview.battlePlan || preview.label)}
                     ${this.infoRow('城墙HP', preview.wallHp)}
                     ${this.infoRow('守军HP', preview.guardHp)}
@@ -2645,7 +2682,9 @@
                         && player.gold >= this.getGuardRecruitCost(slot))
                     .sort((a, b) => this.getBuildingBattlePreview(a).hp - this.getBuildingBattlePreview(b).hp);
                 if (recruitable.length > 0) {
-                    this.performRecruitGuard(player, recruitable[0]);
+                    const slot = recruitable[0];
+                    const roleKey = this.getGuardArchetype(null, slot)?.key || null;
+                    this.performRecruitGuard(player, slot, roleKey);
                     this.endTurn();
                     return;
                 }
@@ -4067,16 +4106,48 @@
                     return;
                 }
 
-                this.performRecruitGuard(player, slot);
+                this.openGuardRecruitMenu(slot, player);
+            },
+
+            openGuardRecruitMenu(slot, player) {
+                this.resetGuardTransferMenu();
+                document.querySelector('#build-menu .build-options').style.display = 'none';
+                const options = document.getElementById('guard-recruit-options');
+                const cost = this.getGuardRecruitCost(slot);
+                options.innerHTML = '';
+                document.getElementById('build-desc').innerText = `选择要补入的守军。当前花费 ${cost}G，不同守军会直接影响攻城战表现。`;
+
+                this.guardArchetypes.forEach(archetype => {
+                    const copy = this.getGuardRecruitMenuCopy(archetype, slot);
+                    const btn = document.createElement('button');
+                    btn.className = 'battle-card';
+                    btn.onclick = () => this.recruitSpecificGuard(archetype.key);
+                    btn.innerHTML = `<strong>${copy.title}</strong><span>${copy.text}</span>`;
+                    options.appendChild(btn);
+                });
+
+                const backBtn = document.createElement('button');
+                backBtn.className = 'battle-card back';
+                backBtn.onclick = () => this.handleSlotClick(slot);
+                backBtn.innerHTML = '<strong>返回</strong><span>回到这座建筑的操作菜单。</span>';
+                options.appendChild(backBtn);
+                options.style.display = 'flex';
+            },
+
+            recruitSpecificGuard(roleKey) {
+                const player = this.players[this.currentPlayerIndex];
+                const slot = this.selectedSlot;
+                if (!slot || slot.owner !== player || slot.type === 'EMPTY') return;
+                this.performRecruitGuard(player, slot, roleKey);
                 document.getElementById('build-menu').style.display = 'none';
                 this.updateUI();
                 this.finishAction(true);
             },
 
-            performRecruitGuard(player, slot) {
+            performRecruitGuard(player, slot, roleKey = null) {
                 const cost = this.getGuardRecruitCost(slot);
                 player.gold -= cost;
-                const guard = this.createGuard(slot);
+                const guard = this.createGuard(slot, roleKey);
                 slot.guards.push(guard);
                 slot.defense += 6 + slot.level * 2;
                 this.updateGuardMarkers(slot);
