@@ -1451,6 +1451,25 @@
                     .join(joiner);
             },
 
+            getGuardRoleCounts(slot) {
+                const counts = { SHIELD: 0, SPEAR: 0, SCOUT: 0, total: 0 };
+                (slot.guards || []).forEach(guard => {
+                    if (counts[guard.key] === undefined) counts[guard.key] = 0;
+                    counts[guard.key] += 1;
+                    counts.total += 1;
+                });
+                return counts;
+            },
+
+            getGuardTraitSummary(slot) {
+                const counts = this.getGuardRoleCounts(slot);
+                const traits = [];
+                if (counts.SHIELD > 0) traits.push(`盾卫${counts.SHIELD} 提升城墙减伤`);
+                if (counts.SPEAR > 0) traits.push(`枪兵${counts.SPEAR} 强化反击`);
+                if (counts.SCOUT > 0) traits.push(`斥候${counts.SCOUT} 提高闪避`);
+                return traits.length > 0 ? traits.join(' / ') : '暂无守军特性';
+            },
+
             getTransferTargets(slot, owner) {
                 if (!slot || !owner) return [];
                 return this.activeNode.slots.filter(other =>
@@ -1482,21 +1501,32 @@
 
             getBuildingBattlePreview(slot) {
                 const hasGuard = slot.guards.length > 0 || slot.type === 'GUARD';
+                const roleCounts = this.getGuardRoleCounts(slot);
                 const wallHp = Math.max(28, slot.defense * 2);
                 const freeGuardHp = slot.type === 'GUARD' && slot.guards.length === 0 ? 24 + slot.level * 8 : 0;
                 const guardHp = slot.guards.reduce((sum, guard) => sum + guard.hp, 0) + freeGuardHp;
                 const guardAtk = slot.guards.reduce((sum, guard) => sum + guard.atk, 0);
-                const wallAtk = 3 + slot.level + Math.ceil(guardAtk * 0.45);
-                const guardPhaseAtk = hasGuard ? 5 + slot.level * 2 + guardAtk : wallAtk;
+                const wallArmor = roleCounts.SHIELD * 3 + (slot.type === 'WORKSHOP' ? 2 + slot.level : 0);
+                const guardArmor = roleCounts.SHIELD * 2;
+                const dodgeChance = Math.min(0.36, roleCounts.SCOUT * 0.08);
+                const counterBonus = roleCounts.SPEAR * 2;
+                const fortifiedWallHp = wallHp + roleCounts.SHIELD * 10;
+                const wallAtk = 3 + slot.level + Math.ceil(guardAtk * 0.45) + roleCounts.SPEAR;
+                const guardPhaseAtk = hasGuard ? 5 + slot.level * 2 + guardAtk + counterBonus + roleCounts.SCOUT : wallAtk;
                 const atk = hasGuard ? wallAtk : guardPhaseAtk;
-                const hp = wallHp + guardHp;
+                const hp = fortifiedWallHp + guardHp;
                 return {
                     hasGuard,
-                    wallHp,
+                    wallHp: fortifiedWallHp,
                     guardHp,
                     guardAtk,
                     wallAtk,
                     guardPhaseAtk,
+                    wallArmor,
+                    guardArmor,
+                    dodgeChance,
+                    counterBonus,
+                    roleCounts,
                     atk,
                     hp,
                     battlePlan: hasGuard ? '守军躲在城墙后' : '只有城墙',
@@ -1738,9 +1768,13 @@
                     ${this.infoRow('防御', slot.defense)}
                     ${this.infoRow('守军', guardText)}
                     ${this.infoRow('驻军编成', this.getGuardSummary(slot, ' | '))}
+                    ${this.infoRow('守军特性', this.getGuardTraitSummary(slot))}
                     ${this.infoRow('防守类型', preview.battlePlan || preview.label)}
                     ${this.infoRow('城墙HP', preview.wallHp)}
                     ${this.infoRow('守军HP', preview.guardHp)}
+                    ${this.infoRow('城墙减伤', preview.wallArmor)}
+                    ${this.infoRow('守军减伤', preview.guardArmor)}
+                    ${this.infoRow('闪避率', `${Math.round(preview.dodgeChance * 100)}%`)}
                     ${this.infoRow('城墙阶段ATK', preview.wallAtk)}
                     ${this.infoRow('守军阶段ATK', preview.guardPhaseAtk)}
                     ${this.infoRow('挑战HP', preview.hp)}
@@ -2565,7 +2599,7 @@
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。城墙 HP ${preview.wallHp} / ATK ${preview.wallAtk}，守军 HP ${preview.guardHp} / ATK ${preview.guardPhaseAtk}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
                 
@@ -2722,6 +2756,11 @@
                     guardHp: preview.guardHp,
                     guardMaxHp: preview.guardHp,
                     guardAtk: preview.guardPhaseAtk,
+                    wallArmor: preview.wallArmor,
+                    guardArmor: preview.guardArmor,
+                    dodgeChance: preview.dodgeChance,
+                    counterBonus: preview.counterBonus,
+                    roleCounts: preview.roleCounts,
                     hasGuard: preview.hasGuard,
                     phase: 'wall',
                     slot,
@@ -2745,6 +2784,11 @@
                         guardHp: enemy.guardHp || 0,
                         guardMaxHp: enemy.guardMaxHp || enemy.guardHp || 0,
                         guardAtk: enemy.guardAtk || enemy.atk || 4,
+                        wallArmor: enemy.wallArmor || 0,
+                        guardArmor: enemy.guardArmor || 0,
+                        dodgeChance: enemy.dodgeChance || 0,
+                        counterBonus: enemy.counterBonus || 0,
+                        roleCounts: enemy.roleCounts || { SHIELD: 0, SPEAR: 0, SCOUT: 0, total: 0 },
                         hasGuard: !!enemy.hasGuard
                     };
                 }
@@ -2800,6 +2844,38 @@
                     outcome.defeated = true;
                 }
                 return outcome;
+            },
+
+            resolveFacilityDamage(enemyState, rawDamage) {
+                if (!enemyState || rawDamage <= 0) {
+                    return { damage: Math.max(0, rawDamage), note: '' };
+                }
+
+                let damage = rawDamage;
+                const notes = [];
+                if (enemyState.phase === 'wall') {
+                    const blocked = Math.min(Math.max(0, damage - 1), enemyState.wallArmor || 0);
+                    if (blocked > 0) {
+                        damage -= blocked;
+                        notes.push(`盾墙减伤 ${blocked}`);
+                    }
+                } else if (enemyState.phase === 'guard') {
+                    if ((enemyState.dodgeChance || 0) > 0 && Math.random() < enemyState.dodgeChance) {
+                        const evade = Math.max(1, Math.floor(damage * 0.45));
+                        damage = Math.max(1, damage - evade);
+                        notes.push(`斥候闪避 ${evade}`);
+                    }
+                    const blocked = Math.min(Math.max(0, damage - 1), enemyState.guardArmor || 0);
+                    if (blocked > 0) {
+                        damage -= blocked;
+                        notes.push(`盾卫格挡 ${blocked}`);
+                    }
+                }
+
+                return {
+                    damage: Math.max(1, damage),
+                    note: notes.join(' / ')
+                };
             },
 
             async handleFacilityBattleStageShift(enemyState, enemyTarget) {
@@ -3446,9 +3522,18 @@
                     }
 
                     if (playerDmg > 0) {
-                        const strikeOutcome = this.applyDamageToEnemyState(enemyState, playerDmg);
+                        let dealtDamage = playerDmg;
+                        if (kind === 'facility') {
+                            const damageResult = this.resolveFacilityDamage(enemyState, playerDmg);
+                            dealtDamage = damageResult.damage;
+                            if (damageResult.note) {
+                                this.log(`${enemyState.name} ${damageResult.note}。`);
+                                this.createFloatingText(damageResult.note, enemyPos, "#70a1ff");
+                            }
+                        }
+                        const strikeOutcome = this.applyDamageToEnemyState(enemyState, dealtDamage);
                         this.updateBattleStatus(attacker, enemyState, round);
-                        this.createFloatingText(`-${playerDmg}`, enemyPos, "#ff4757");
+                        this.createFloatingText(`-${dealtDamage}`, enemyPos, "#ff4757");
                         this.bumpCombatant(attacker.meshGroup, enemyPos);
                         this.showHitEffect(enemyMesh || enemyPos, 0xff6b81);
                         await this.focusBattleCamera(enemyMesh || enemyPos, 1.72, 220);
