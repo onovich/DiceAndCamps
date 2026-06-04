@@ -743,7 +743,7 @@
                 MEND: { name: '治愈', kind: 'heal', heal: 16, text: '恢复 16HP。' }
             },
             facilityConfigs: {
-                TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10, allowsGuards: false, guardSlots: 0 },
+                TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10, allowsGuards: true, guardSlots: 1 },
                 GUARD: { name: '守卫哨站', cost: 80, color: 0xff4757, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 1 },
                 INCOME: { name: '金矿', cost: 100, color: 0xeccc68, maxLevel: 3, baseDefense: 14, allowsGuards: true, guardSlots: 1 },
                 HEAL: { name: '治疗营地', cost: 90, color: 0x7bed9f, maxLevel: 3, baseDefense: 12, allowsGuards: true, guardSlots: 1 },
@@ -1558,6 +1558,9 @@
                     const explicit = this.guardArchetypes.find(guard => guard.key === preferredKey);
                     if (explicit) return explicit;
                 }
+                if (slot?.type === 'TRAP') {
+                    return this.guardArchetypes.find(guard => guard.key === 'SCOUT');
+                }
                 if (slot?.type === 'WORKSHOP' || slot?.type === 'GUARD') {
                     return this.guardArchetypes.find(guard => guard.key === 'SHIELD');
                 }
@@ -1693,6 +1696,24 @@
                     hp,
                     battlePlan: hasGuard ? '守军躲在城墙后' : '只有城墙',
                     label: hasGuard ? '守军+城墙' : '墙壁战'
+                };
+            },
+
+            getFacilityBattleRewards(slot) {
+                const guardCount = slot.guards?.length || 0;
+                return {
+                    gold: 70 + slot.level * 35 + guardCount * 25 + (slot.type === 'WORKSHOP' ? 20 : 0),
+                    exp: 30 + slot.level * 15 + guardCount * 10 + (slot.type === 'GUARD' ? 10 : 0)
+                };
+            },
+
+            getGuardPressurePayload(slot) {
+                const roleCounts = this.getGuardRoleCounts(slot);
+                return {
+                    goldLoss: 8 + slot.level * 4 + roleCounts.SPEAR * 6 + roleCounts.total * 2,
+                    damage: roleCounts.SCOUT * (2 + Math.ceil(slot.level / 2)) + (slot.type === 'GUARD' ? 3 + slot.level : 0),
+                    defenseBoost: roleCounts.SHIELD * 2 + (slot.type === 'GUARD' ? slot.level : 0),
+                    roleCounts
                 };
             },
 
@@ -2310,7 +2331,18 @@
             },
 
             async triggerOwnedFacility(slot, player) {
-                if (slot.type === 'GUARD') {
+                if (slot.type === 'TRAP') {
+                    const resetDefense = 3 + slot.level * 2;
+                    slot.defense += resetDefense;
+                    const scoutDrill = slot.guards.filter(guard => guard.key === 'SCOUT');
+                    scoutDrill.forEach(guard => {
+                        guard.atk += 1;
+                        guard.hp = Math.min(guard.maxHp, guard.hp + 4 + slot.level);
+                    });
+                    this.updateFacilityVisual(slot);
+                    this.log(`路过自己的陷阱阵地，机关重置，防御 +${resetDefense}${scoutDrill.length > 0 ? `，并让 ${scoutDrill.length} 名斥候守军完成伏击演练` : ''}。`);
+                    this.createFloatingText(`伏击就绪 +${resetDefense}`, slot.mesh.position, "#a55eea");
+                } else if (slot.type === 'GUARD') {
                     if (slot.guards.length > 0) {
                         const guard = slot.guards[(slot.level + slot.guards.length - 1) % slot.guards.length];
                         const hpGain = 3 + slot.level * 2;
@@ -2502,11 +2534,14 @@
             async triggerEnemyFacility(slot, player) {
                 if (slot.type === 'TRAP') {
                     await this.triggerTrap(slot, player);
+                    if (slot.guards.length > 0) {
+                        await this.triggerGuardPressure(slot, player);
+                    }
                     return;
                 }
 
-                if (slot.type === 'GUARD' || slot.guards.length > 0) {
-                    await this.triggerCombat(slot, player);
+                if (slot.type === 'GUARD') {
+                    await this.triggerGuardPressure(slot, player);
                     return;
                 }
 
@@ -2565,6 +2600,10 @@
                     this.createFloatingText("敌方加固", slot.mesh.position, "#747d8c");
                 }
 
+                if (slot.guards.length > 0) {
+                    await this.triggerGuardPressure(slot, player);
+                }
+
                 await this.wait(260);
             },
 
@@ -2580,29 +2619,41 @@
                 });
             },
 
-            async triggerCombat(slot, player) {
-                this.log(`遭遇敌方 ${this.getFacilityName(slot)} 的守军，进入战斗！`);
-                const enemy = this.createBuildingBattleEnemy(slot);
-                const victory = await this.resolveBattleShell({
-                    attacker: player,
-                    enemy,
-                    sourceSlot: slot,
-                    kind: 'facility'
-                });
+            async triggerGuardPressure(slot, player) {
+                const { goldLoss, damage, defenseBoost, roleCounts } = this.getGuardPressurePayload(slot);
+                const toll = Math.min(player.gold, goldLoss);
+                const lines = [];
 
-                if (victory) {
-                    const rewardGold = 70 + slot.level * 35 + slot.guards.length * 25;
-                    const rewardExp = 30 + slot.level * 15 + slot.guards.length * 10;
-                    const name = this.getFacilityName(slot);
-                    player.gold += rewardGold;
-                    this.gainExp(player, rewardExp);
-                    this.clearFacility(slot);
-                    this.createFloatingText("摧毁", slot.mesh.position, "#ff4757");
-                    this.log(`击败守军并摧毁敌方 ${name}，获得 ${rewardGold}G 和 ${rewardExp}EXP。`);
-                } else {
-                    this.log(`未能突破敌方 ${this.getFacilityName(slot)}，守军仍然驻守。`);
+                if (defenseBoost > 0) {
+                    slot.defense += defenseBoost;
+                    this.updateFacilityVisual(slot);
+                    lines.push(`盾卫趁机固守，城墙再加厚 ${defenseBoost}`);
+                    this.createFloatingText(`固守 +${defenseBoost}`, slot.mesh.position, "#70a1ff");
                 }
-                this.updateUI();
+
+                if (toll > 0) {
+                    player.gold -= toll;
+                    slot.owner.gold += toll;
+                    lines.push(`守军抽走 ${toll}G 作为封锁代价`);
+                    this.createFloatingText(`-${toll}G`, player.meshGroup.position, "#eccc68");
+                }
+
+                if (damage > 0) {
+                    player.hp = Math.max(1, player.hp - damage);
+                    lines.push(`斥候与岗哨造成 ${damage} 点压制伤害`);
+                    this.screenFlash();
+                    this.createFloatingText(`-${damage}`, player.meshGroup.position, "#ff6b81");
+                }
+
+                if (roleCounts.SPEAR > 0) {
+                    lines.push(`枪兵封锁了通路`);
+                }
+                if (roleCounts.SCOUT > 0) {
+                    lines.push(`斥候暴露了你的动线`);
+                }
+
+                this.log(`敌方 ${this.getFacilityName(slot)} 的守军出动施压：${lines.join('，')}。真正攻城要在行动阶段主动发起挑战。`);
+                await this.wait(280);
             },
 
             gainExp(player, amount) {
@@ -2918,10 +2969,13 @@
                 });
 
                 if (victory) {
+                    const rewards = this.getFacilityBattleRewards(slot);
                     const name = this.getFacilityName(slot);
+                    player.gold += rewards.gold;
+                    this.gainExp(player, rewards.exp);
                     this.clearFacility(slot);
                     this.createFloatingText("摧毁", slot.mesh.position, "#ff4757");
-                    this.log(`攻破并摧毁了敌方 ${name}。胜利不消耗行动。`);
+                    this.log(`攻破并摧毁了敌方 ${name}，获得 ${rewards.gold}G 和 ${rewards.exp}EXP。胜利不消耗行动。`);
                     this.updateUI();
                     this.finishAction(false);
                 } else {
