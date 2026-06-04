@@ -141,6 +141,70 @@
             box-shadow: 5px 5px 0 rgba(0,0,0,0.28);
             align-items: stretch;
         }
+        #battle-status {
+            position: absolute;
+            left: 50%;
+            top: 22px;
+            transform: translateX(-50%);
+            display: none;
+            gap: 12px;
+            align-items: stretch;
+            min-width: min(720px, calc(100vw - 36px));
+            pointer-events: none;
+            z-index: 35;
+        }
+        .battle-status-card {
+            flex: 1 1 0;
+            min-width: 0;
+            padding: 10px 12px;
+            background: rgba(255, 248, 232, 0.96);
+            border: 4px solid #111;
+            border-radius: 8px;
+            box-shadow: 5px 5px 0 rgba(0,0,0,0.28);
+            color: #111;
+        }
+        .battle-status-card.enemy {
+            background: rgba(255, 230, 236, 0.96);
+        }
+        .battle-status-name {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 900;
+            margin-bottom: 6px;
+        }
+        .battle-status-bar {
+            height: 10px;
+            overflow: hidden;
+            border: 2px solid #111;
+            border-radius: 999px;
+            background: #ced6e0;
+        }
+        .battle-status-fill {
+            height: 100%;
+            width: 100%;
+            background: #2ed573;
+            transition: width 0.18s ease-out;
+        }
+        .battle-status-card.enemy .battle-status-fill {
+            background: #ff4757;
+        }
+        .battle-status-phase {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 112px;
+            padding: 0 12px;
+            background: #111;
+            color: #fff8e8;
+            border: 4px solid #fff8e8;
+            border-radius: 8px;
+            box-shadow: 5px 5px 0 rgba(0,0,0,0.28);
+            font-weight: 900;
+            text-align: center;
+        }
         .battle-deck-hud {
             min-width: 104px;
             padding: 10px;
@@ -392,6 +456,7 @@
 
         <div id="battle-result"></div>
         <div id="hover-info"></div>
+        <div id="battle-status"></div>
 
         <div id="battle-ui">
             <button class="battle-command" onclick="Game.chooseBattleCommand('attack')">攻击</button>
@@ -2544,6 +2609,52 @@
                 resolve({ type: 'card', cardId });
             },
 
+            getBattlePhaseLabel() {
+                const labels = {
+                    [BattlePhase.ENTER]: '入场',
+                    [BattlePhase.TAUNT]: '叫嚣',
+                    [BattlePhase.ATTACKER_TURN]: '我方行动',
+                    [BattlePhase.ENEMY_TURN]: '敌方反击',
+                    [BattlePhase.RESULT]: '结算',
+                    [BattlePhase.RESTORE]: '复位'
+                };
+                return labels[this.battlePhase] || '战斗';
+            },
+
+            getHpPercent(current, max) {
+                if (!max || max <= 0) return 0;
+                return Math.max(0, Math.min(100, (current / max) * 100));
+            },
+
+            updateBattleStatus(attacker, enemyState, round = 0) {
+                const status = document.getElementById('battle-status');
+                if (!status || !attacker || !enemyState) return;
+                const attackerHp = Math.max(0, attacker.hp);
+                const enemyHp = Math.max(0, enemyState.hp);
+                const attackerPct = this.getHpPercent(attackerHp, attacker.maxHp);
+                const enemyPct = this.getHpPercent(enemyHp, enemyState.maxHp);
+                const phaseText = round > 0 ? `第${round}回合<br>${this.getBattlePhaseLabel()}` : this.getBattlePhaseLabel();
+                status.innerHTML = `
+                    <div class="battle-status-card">
+                        <div class="battle-status-name"><span>${this.escapeHtml(attacker.name)}</span><span>${attackerHp}/${attacker.maxHp}</span></div>
+                        <div class="battle-status-bar"><div class="battle-status-fill" style="width:${attackerPct}%"></div></div>
+                    </div>
+                    <div class="battle-status-phase">${phaseText}</div>
+                    <div class="battle-status-card enemy">
+                        <div class="battle-status-name"><span>${this.escapeHtml(enemyState.name)}</span><span>${enemyHp}/${enemyState.maxHp}</span></div>
+                        <div class="battle-status-bar"><div class="battle-status-fill" style="width:${enemyPct}%"></div></div>
+                    </div>
+                `;
+                status.style.display = 'flex';
+            },
+
+            hideBattleStatus() {
+                const status = document.getElementById('battle-status');
+                if (!status) return;
+                status.style.display = 'none';
+                status.innerHTML = '';
+            },
+
             async chooseAutoBattleCommand(attacker, enemyState, kind, round) {
                 await this.wait(420);
                 if (attacker.hp < attacker.maxHp * 0.28 && kind === 'monster') return 'flee';
@@ -2714,6 +2825,7 @@
                     atk: enemy.atk || 4
                 };
                 this.log(`${attacker.name} 向 ${enemyState.name} 发起战斗！`);
+                this.updateBattleStatus(attacker, enemyState, 0);
 
                 await this.enterBattleScene(attacker, enemy);
                 await this.showTauntSequence(attacker, enemy);
@@ -2724,6 +2836,7 @@
                 let fled = false;
                 for (let round = 1; round <= 8 && attacker.hp > 0 && enemyState.hp > 0; round++) {
                     this.setBattlePhase(BattlePhase.ATTACKER_TURN, { round });
+                    this.updateBattleStatus(attacker, enemyState, round);
                     this.log(`选择行动：${attacker.name} HP ${attacker.hp}/${attacker.maxHp}，${enemyState.name} HP ${Math.max(0, enemyState.hp)}/${enemyState.maxHp}`);
                     const command = attacker.isPlayer
                         ? await this.waitForBattleCommand(attacker)
@@ -2790,6 +2903,7 @@
 
                     if (playerDmg > 0) {
                         enemyState.hp -= playerDmg;
+                        this.updateBattleStatus(attacker, enemyState, round);
                         this.createFloatingText(`-${playerDmg}`, enemyPos, "#ff4757");
                         this.bumpCombatant(attacker.meshGroup, enemyPos);
                         this.showHitEffect(enemyMesh || enemyPos, 0xff6b81);
@@ -2800,10 +2914,12 @@
                     if (enemyState.hp <= 0 || fled) break;
 
                     this.setBattlePhase(BattlePhase.ENEMY_TURN, { round });
+                    this.updateBattleStatus(attacker, enemyState, round);
                     const incoming = Math.max(1, enemyState.atk + Math.floor(Math.random() * 4) - (defend ? blockValue : 0));
                     await this.focusBattleCamera(enemyMesh || enemyPos, 1.58, 220);
                     await this.playCounterAttack(enemyMesh, attacker.meshGroup);
                     attacker.hp -= incoming;
+                    this.updateBattleStatus(attacker, enemyState, round);
                     this.screenFlash();
                     this.createFloatingText(`-${incoming}`, attacker.meshGroup.position, "#ff0000");
                     this.showHitEffect(attacker.meshGroup, defend ? 0x70a1ff : 0xff4757);
@@ -2817,9 +2933,12 @@
                 if (attacker.hp <= 0) {
                     attacker.hp = Math.max(1, Math.floor(attacker.maxHp * 0.35));
                 }
+                this.setBattlePhase(BattlePhase.RESULT, { victory, fled });
+                this.updateBattleStatus(attacker, enemyState, this.battleContext?.round || 0);
 
                 await this.showBattleResult(victory, fled);
                 await this.exitBattleScene();
+                this.hideBattleStatus();
                 this.setBattlePhase(BattlePhase.NONE);
                 this.battleContext = null;
                 this.transitionTo(TurnState.ACTION_SELECT);
@@ -2990,6 +3109,7 @@
                 this.stopSlotHighlightOnly();
                 this.clearBranchChoiceArrows();
                 this.clearHoverState();
+                this.hideBattleStatus();
                 this.setBattlePhase(BattlePhase.NONE);
                 this.battleContext = null;
                 this.setActionConsumed(false);

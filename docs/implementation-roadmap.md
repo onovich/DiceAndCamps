@@ -99,6 +99,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added hover information panels for player/enemy characters, owned/enemy facilities, and wild monsters.
 - Added an explicit battle phase state machine for battle entry, taunts, attacker/enemy turns, results, and restoration.
 - Added clearer JRPG combat feedback: defense shields, hit sparks, and enemy counterattack lunges.
+- Added a battle status HUD with both combatants' HP bars, round count, and current battle phase.
 
 ## Validation Gates
 
