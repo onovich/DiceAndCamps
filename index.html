@@ -462,6 +462,16 @@
             RETURNING: 'RETURNING'
         });
 
+        const BattlePhase = Object.freeze({
+            NONE: 'NONE',
+            ENTER: 'ENTER',
+            TAUNT: 'TAUNT',
+            ATTACKER_TURN: 'ATTACKER_TURN',
+            ENEMY_TURN: 'ENEMY_TURN',
+            RESULT: 'RESULT',
+            RESTORE: 'RESTORE'
+        });
+
         const Game = {
             scene: null, camera: null, renderer: null,
             players: [],
@@ -472,6 +482,7 @@
             state: TurnState.IDLE, // explicit turn/action state machine
             dicePhase: DicePhase.READY,
             cameraMode: CameraMode.FOLLOW,
+            battlePhase: BattlePhase.NONE,
             cameraReturnTween: null,
             slotHighlightTweens: [],
             tileFloatTweens: [],
@@ -539,6 +550,15 @@
 
             setCameraMode(nextMode) {
                 this.cameraMode = nextMode;
+            },
+
+            setBattlePhase(nextPhase, contextPatch = {}) {
+                this.battlePhase = nextPhase;
+                this.battleContext = {
+                    ...(this.battleContext || {}),
+                    ...contextPatch,
+                    phase: nextPhase
+                };
             },
 
             returnCameraToFollow() {
@@ -2341,6 +2361,7 @@
 
             async exitBattleScene() {
                 if (!this.battleSnapshot) return;
+                this.setBattlePhase(BattlePhase.RESTORE);
                 const snapshot = this.battleSnapshot;
                 snapshot.mapObjects.forEach(({ mesh, position, visible, index }) => {
                     mesh.visible = visible;
@@ -2402,6 +2423,7 @@
             },
 
             async showTauntSequence(attacker, enemy) {
+                this.setBattlePhase(BattlePhase.TAUNT);
                 const layer = document.getElementById('taunt-layer');
                 const heroBox = document.getElementById('taunt-hero');
                 const enemyBox = document.getElementById('taunt-enemy');
@@ -2531,6 +2553,7 @@
             },
 
             async showBattleResult(victory, fled = false) {
+                this.setBattlePhase(BattlePhase.RESULT, { victory, fled });
                 const result = document.getElementById('battle-result');
                 result.innerText = fled ? '撤退!' : (victory ? '胜利!' : '失败!');
                 result.style.background = victory ? '#ffdd59' : (fled ? '#ced6e0' : '#ff6b81');
@@ -2604,6 +2627,12 @@
 
             async resolveBattleShell({ attacker, enemy, sourceSlot, kind }) {
                 this.transitionTo(TurnState.BATTLE, kind === 'monster' ? '野怪战斗' : '建筑挑战');
+                this.setBattlePhase(BattlePhase.ENTER, {
+                    attacker,
+                    enemy,
+                    kind,
+                    round: 0
+                });
                 this.stopSlotHighlightOnly();
                 document.getElementById('btn-end').style.display = 'none';
 
@@ -2623,6 +2652,7 @@
 
                 let fled = false;
                 for (let round = 1; round <= 8 && attacker.hp > 0 && enemyState.hp > 0; round++) {
+                    this.setBattlePhase(BattlePhase.ATTACKER_TURN, { round });
                     this.log(`选择行动：${attacker.name} HP ${attacker.hp}/${attacker.maxHp}，${enemyState.name} HP ${Math.max(0, enemyState.hp)}/${enemyState.maxHp}`);
                     const command = attacker.isPlayer
                         ? await this.waitForBattleCommand(attacker)
@@ -2691,6 +2721,7 @@
 
                     if (enemyState.hp <= 0 || fled) break;
 
+                    this.setBattlePhase(BattlePhase.ENEMY_TURN, { round });
                     const incoming = Math.max(1, enemyState.atk + Math.floor(Math.random() * 4) - (defend ? blockValue : 0));
                     await this.focusBattleCamera(enemyMesh || enemyPos, 1.58, 220);
                     attacker.hp -= incoming;
@@ -2709,6 +2740,8 @@
 
                 await this.showBattleResult(victory, fled);
                 await this.exitBattleScene();
+                this.setBattlePhase(BattlePhase.NONE);
+                this.battleContext = null;
                 this.transitionTo(TurnState.ACTION_SELECT);
                 return victory;
             },
@@ -2877,6 +2910,8 @@
                 this.stopSlotHighlightOnly();
                 this.clearBranchChoiceArrows();
                 this.clearHoverState();
+                this.setBattlePhase(BattlePhase.NONE);
+                this.battleContext = null;
                 this.setActionConsumed(false);
                 document.getElementById('build-menu').style.display = 'none';
                 document.getElementById('branch-menu').style.display = 'none';

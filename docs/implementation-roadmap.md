@@ -97,6 +97,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Replaced the branch-choice DOM menu with in-world road-tile arrows that appear only after the player reaches a fork mid-move.
 - Added pointer hover feedback for road tiles, land tiles, and branch-choice arrows.
 - Added hover information panels for player/enemy characters, owned/enemy facilities, and wild monsters.
+- Added an explicit battle phase state machine for battle entry, taunts, attacker/enemy turns, results, and restoration.
 
 ## Validation Gates
 
