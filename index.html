@@ -2625,6 +2625,77 @@
                 }
             },
 
+            showDefendEffect(meshGroup, blockValue = 0) {
+                if (!meshGroup) return;
+                const ring = new THREE.Mesh(
+                    new THREE.TorusGeometry(0.74, 0.055, 8, 28),
+                    new THREE.MeshBasicMaterial({ color: 0x70a1ff, transparent: true, opacity: 0.88 })
+                );
+                ring.position.set(meshGroup.position.x, meshGroup.position.y + 0.62, meshGroup.position.z);
+                ring.rotation.x = Math.PI / 2;
+                ring.scale.set(0.25, 0.25, 0.25);
+                this.scene.add(ring);
+                this.createFloatingText(blockValue > 0 ? `格挡 ${blockValue}` : '防御', meshGroup.position, '#70a1ff');
+
+                new TWEEN.Tween(ring.scale)
+                    .to({ x: 1.25, y: 1.25, z: 1.25 }, 360)
+                    .easing(TWEEN.Easing.Back.Out)
+                    .start();
+                new TWEEN.Tween(ring.material)
+                    .to({ opacity: 0 }, 420)
+                    .delay(120)
+                    .onComplete(() => this.scene.remove(ring))
+                    .start();
+                new TWEEN.Tween(meshGroup.scale)
+                    .to({ x: 1.08, y: 0.92, z: 1.08 }, 110)
+                    .yoyo(true)
+                    .repeat(1)
+                    .easing(TWEEN.Easing.Quadratic.Out)
+                    .start();
+            },
+
+            showHitEffect(target, color = 0xff4757) {
+                const origin = target.position ? target.position : target;
+                for (let i = 0; i < 8; i++) {
+                    const spark = this.createToonBox(0.12, 0.08, 0.12, color, false);
+                    spark.position.set(origin.x, origin.y + 0.68, origin.z);
+                    this.scene.add(spark);
+                    new TWEEN.Tween(spark.position)
+                        .to({
+                            x: origin.x + (Math.random() - 0.5) * 1.3,
+                            y: origin.y + 0.7 + Math.random() * 0.9,
+                            z: origin.z + (Math.random() - 0.5) * 1.3
+                        }, 260)
+                        .easing(TWEEN.Easing.Quadratic.Out)
+                        .onComplete(() => {
+                            new TWEEN.Tween(spark.position)
+                                .to({ y: origin.y + 0.05 }, 260)
+                                .easing(TWEEN.Easing.Quadratic.In)
+                                .onComplete(() => this.scene.remove(spark))
+                                .start();
+                        })
+                        .start();
+                }
+                if (target.position) {
+                    const start = target.position.clone();
+                    new TWEEN.Tween(target.position)
+                        .to({ x: start.x + 0.12, z: start.z - 0.12 }, 55)
+                        .yoyo(true)
+                        .repeat(3)
+                        .onComplete(() => target.position.copy(start))
+                        .start();
+                }
+            },
+
+            async playCounterAttack(enemyMesh, attackerMesh) {
+                if (enemyMesh) {
+                    this.bumpCombatant(enemyMesh, attackerMesh.position);
+                    await this.wait(150);
+                    return;
+                }
+                await this.wait(120);
+            },
+
             async resolveBattleShell({ attacker, enemy, sourceSlot, kind }) {
                 this.transitionTo(TurnState.BATTLE, kind === 'monster' ? '野怪战斗' : '建筑挑战');
                 this.setBattlePhase(BattlePhase.ENTER, {
@@ -2708,13 +2779,20 @@
                     } else {
                         this.log("指令失效，默认防御。");
                         defend = true;
+                        blockValue = 7;
                         await this.focusBattleCamera(attacker.meshGroup, 1.5, 180);
+                    }
+
+                    if (defend) {
+                        this.showDefendEffect(attacker.meshGroup, blockValue);
+                        await this.wait(120);
                     }
 
                     if (playerDmg > 0) {
                         enemyState.hp -= playerDmg;
                         this.createFloatingText(`-${playerDmg}`, enemyPos, "#ff4757");
                         this.bumpCombatant(attacker.meshGroup, enemyPos);
+                        this.showHitEffect(enemyMesh || enemyPos, 0xff6b81);
                         await this.focusBattleCamera(enemyMesh || enemyPos, 1.72, 220);
                         await this.wait(300);
                     }
@@ -2724,9 +2802,11 @@
                     this.setBattlePhase(BattlePhase.ENEMY_TURN, { round });
                     const incoming = Math.max(1, enemyState.atk + Math.floor(Math.random() * 4) - (defend ? blockValue : 0));
                     await this.focusBattleCamera(enemyMesh || enemyPos, 1.58, 220);
+                    await this.playCounterAttack(enemyMesh, attacker.meshGroup);
                     attacker.hp -= incoming;
                     this.screenFlash();
                     this.createFloatingText(`-${incoming}`, attacker.meshGroup.position, "#ff0000");
+                    this.showHitEffect(attacker.meshGroup, defend ? 0x70a1ff : 0xff4757);
                     await this.focusBattleCamera(attacker.meshGroup, 1.72, 180);
                     await this.wait(380);
                 }

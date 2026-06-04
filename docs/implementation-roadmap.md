@@ -98,6 +98,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added pointer hover feedback for road tiles, land tiles, and branch-choice arrows.
 - Added hover information panels for player/enemy characters, owned/enemy facilities, and wild monsters.
 - Added an explicit battle phase state machine for battle entry, taunts, attacker/enemy turns, results, and restoration.
+- Added clearer JRPG combat feedback: defense shields, hit sparks, and enemy counterattack lunges.
 
 ## Validation Gates
 
