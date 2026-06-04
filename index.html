@@ -1304,6 +1304,25 @@
                 return slot.guards.reduce((sum, guard) => sum + guard.hp + guard.atk * 3, 0);
             },
 
+            getBuildingBattlePreview(slot) {
+                const hasGuard = slot.guards.length > 0 || slot.type === 'GUARD';
+                const wallHp = Math.max(28, slot.defense * 2);
+                const freeGuardHp = slot.type === 'GUARD' && slot.guards.length === 0 ? 24 + slot.level * 8 : 0;
+                const guardHp = slot.guards.reduce((sum, guard) => sum + guard.hp, 0) + freeGuardHp;
+                const guardAtk = slot.guards.reduce((sum, guard) => sum + guard.atk, 0);
+                const atk = hasGuard ? 6 + slot.level * 2 + guardAtk : 3 + slot.level;
+                const hp = wallHp + guardHp;
+                return {
+                    hasGuard,
+                    wallHp,
+                    guardHp,
+                    guardAtk,
+                    atk,
+                    hp,
+                    label: hasGuard ? '守军+城墙' : '墙壁战'
+                };
+            },
+
             setActionConsumed(consumed) {
                 this.actionConsumedThisTurn = consumed;
             },
@@ -1523,13 +1542,21 @@
                 const ownedByPlayer = slot.owner?.isPlayer;
                 const tag = ownedByPlayer ? '我方建筑' : '敌方建筑';
                 const capacity = this.getGuardCapacity(slot);
+                const preview = this.getBuildingBattlePreview(slot);
+                const guardText = capacity > 0
+                    ? `${slot.guards.length}/${capacity}`
+                    : '不可驻防';
                 return `
                     <div class="info-title">${this.escapeHtml(this.getFacilityName(slot))}</div>
                     <div class="info-tag">${tag}</div>
                     ${this.infoRow('归属', slot.owner ? slot.owner.name : '无主')}
                     ${this.infoRow('等级', `Lv.${slot.level}/${slot.maxLevel}`)}
                     ${this.infoRow('防御', slot.defense)}
-                    ${this.infoRow('守军', `${slot.guards.length}/${capacity}`)}
+                    ${this.infoRow('守军', guardText)}
+                    ${this.infoRow('防守类型', preview.label)}
+                    ${this.infoRow('城墙HP', preview.wallHp)}
+                    ${this.infoRow('挑战HP', preview.hp)}
+                    ${this.infoRow('预估ATK', preview.atk)}
                 `;
             },
 
@@ -2193,11 +2220,15 @@
                         ? `招募守军 (${guardCost}G)`
                         : "不可驻防";
                     demolishBtn.disabled = false;
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，守军 ${slot.guards.length}/${guardCapacity}。升级或招募会消耗行动，拆毁不会消耗行动。`;
+                    const guardNote = this.canFacilityHostGuards(slot)
+                        ? `守军 ${slot.guards.length}/${guardCapacity}`
+                        : '不可驻防，但升级会更快提高防御';
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。升级或招募会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施。可以挑战守军和城墙，胜利摧毁建筑且不消耗行动，失败会消耗行动。`;
+                    const preview = this.getBuildingBattlePreview(slot);
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.label}，挑战HP ${preview.hp}，ATK ${preview.atk}。胜利摧毁建筑且不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
                 
@@ -2272,16 +2303,12 @@
             },
 
             createBuildingBattleEnemy(slot) {
-                const hasGuard = slot.guards.length > 0 || slot.type === 'GUARD';
-                const wallHp = Math.max(28, slot.defense * 2);
-                const guardHp = slot.guards.reduce((sum, guard) => sum + guard.hp, 0)
-                    + (slot.type === 'GUARD' && slot.guards.length === 0 ? 24 + slot.level * 8 : 0);
-                const guardAtk = slot.guards.reduce((sum, guard) => sum + guard.atk, 0);
+                const preview = this.getBuildingBattlePreview(slot);
                 return {
-                    name: hasGuard ? `${this.getFacilityName(slot)}守军与城墙` : `${this.getFacilityName(slot)}城墙`,
-                    hp: wallHp + guardHp,
-                    maxHp: wallHp + guardHp,
-                    atk: hasGuard ? 6 + slot.level * 2 + guardAtk : 3 + slot.level,
+                    name: preview.hasGuard ? `${this.getFacilityName(slot)}守军与城墙` : `${this.getFacilityName(slot)}城墙`,
+                    hp: preview.hp,
+                    maxHp: preview.hp,
+                    atk: preview.atk,
                     slot,
                     meshGroup: slot.facilityMesh || slot.mesh
                 };
