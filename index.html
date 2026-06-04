@@ -292,9 +292,50 @@
             line-height: 1.25;
             box-shadow: 7px 7px 0 rgba(0,0,0,0.32);
             transform: rotate(-2deg) skew(-3deg);
+            clip-path: polygon(0 7%, 4% 0, 98% 3%, 100% 87%, 94% 100%, 3% 96%);
+            z-index: 2;
+        }
+        .taunt-box::before {
+            content: attr(data-speaker);
+            position: absolute;
+            left: 16px;
+            top: -18px;
+            padding: 3px 10px;
+            background: #111;
+            color: #fff8e8;
+            border: 3px solid #fff8e8;
+            font-size: 13px;
+            font-weight: 1000;
+            transform: rotate(-2deg);
+        }
+        .taunt-box::after {
+            content: "";
+            position: absolute;
+            width: 34px;
+            height: 24px;
+            left: 28px;
+            bottom: -18px;
+            background: #111;
+            clip-path: polygon(0 0, 100% 0, 18% 100%);
+            z-index: -1;
+        }
+        .taunt-box.enemy {
+            background: #ffe6ec;
+            transform: rotate(2deg) skew(3deg);
+            clip-path: polygon(2% 3%, 96% 0, 100% 9%, 98% 97%, 5% 100%, 0 88%);
+        }
+        .taunt-box.enemy::before {
+            left: auto;
+            right: 16px;
+            transform: rotate(2deg);
+        }
+        .taunt-box.enemy::after {
+            left: auto;
+            right: 28px;
+            clip-path: polygon(0 0, 100% 0, 82% 100%);
         }
         #taunt-hero { left: 7%; bottom: 24%; }
-        #taunt-enemy { right: 7%; top: 18%; transform: rotate(2deg) skew(3deg); }
+        #taunt-enemy { right: 7%; top: 18%; }
         #battle-result {
             display: none;
             position: absolute;
@@ -2622,21 +2663,42 @@
                 this.battleSnapshot = null;
             },
 
-            async showTauntSequence(attacker, enemy) {
+            getTauntLines(attacker, enemy, kind) {
+                if (kind === 'monster') {
+                    return {
+                        hero: `${attacker.name}: 让开！这块地我要拿来扎营！`,
+                        enemy: `${enemy.name}: 咕噜咕噜！先赢过我再说！`
+                    };
+                }
+                const wallLine = enemy.name.includes('城墙')
+                    ? `${enemy.name}: 墙不说话，但墙很硬！`
+                    : `${enemy.name}: 守军在城墙后等你很久了！`;
+                return {
+                    hero: `${attacker.name}: 开门，或者我自己打进去！`,
+                    enemy: wallLine
+                };
+            },
+
+            async showTauntSequence(attacker, enemy, kind) {
                 this.setBattlePhase(BattlePhase.TAUNT);
                 const layer = document.getElementById('taunt-layer');
                 const heroBox = document.getElementById('taunt-hero');
                 const enemyBox = document.getElementById('taunt-enemy');
+                const lines = this.getTauntLines(attacker, enemy, kind);
                 const enemyName = enemy.name;
                 const enemyFocus = enemy.meshGroup || enemy.slot?.mesh || attacker.meshGroup;
                 layer.style.display = 'block';
+                heroBox.className = 'taunt-box';
+                enemyBox.className = 'taunt-box enemy';
+                heroBox.dataset.speaker = attacker.name;
+                enemyBox.dataset.speaker = enemyName;
                 heroBox.innerText = '';
                 enemyBox.innerText = '';
                 await this.focusBattleCamera(attacker.meshGroup, 1.68, 340);
-                await this.typeBattleText(heroBox, `${attacker.name}: 这块地，我要闯过去！`);
+                await this.typeBattleText(heroBox, lines.hero);
                 await this.wait(220);
                 await this.focusBattleCamera(enemyFocus, 1.78, 340);
-                await this.typeBattleText(enemyBox, `${enemyName}: 来吧，先打碎我的气势！`);
+                await this.typeBattleText(enemyBox, lines.enemy);
                 await this.wait(420);
                 await this.focusBattleCamera(new THREE.Vector3(4.9, 0.4, 5.0), 1.25, 300);
                 layer.style.display = 'none';
@@ -2963,7 +3025,7 @@
                 this.updateBattleStatus(attacker, enemyState, 0);
 
                 await this.enterBattleScene(attacker, enemy);
-                await this.showTauntSequence(attacker, enemy);
+                await this.showTauntSequence(attacker, enemy, kind);
                 if (attacker.isPlayer) this.prepareBattleDeck(attacker);
                 const enemyMesh = enemy.meshGroup || (sourceSlot ? sourceSlot.mesh : null);
                 const enemyPos = enemyMesh ? enemyMesh.position : attacker.meshGroup.position;

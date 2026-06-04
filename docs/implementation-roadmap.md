@@ -104,6 +104,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added AI building management so opponents recruit guards and upgrade owned facilities before building new ones.
 - Added snapshot-based dice occluder fading so nearby buildings and guard markers fade during dice rolls and restore exactly afterward.
 - Refined shared road-node stances with smaller character bodies, colored stance pads, and bouncy reflow animations.
+- Strengthened pre-battle taunts with jagged comic panels, speaker labels, and monster/facility-specific lines.
 
 ## Validation Gates
 
