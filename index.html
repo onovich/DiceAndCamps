@@ -408,16 +408,81 @@
             position: absolute;
             left: 50%;
             top: 38%;
-            transform: translate(-50%, -50%) rotate(-3deg);
-            padding: 22px 34px;
+            transform: translate(-50%, -50%) scale(0.72) rotate(-3deg);
+            min-width: min(520px, calc(100vw - 40px));
+            max-width: min(640px, calc(100vw - 32px));
+            padding: 20px 24px 18px;
             background: #ffdd59;
             color: #111;
             border: 6px solid #111;
-            font-size: clamp(34px, 7vw, 78px);
+            border-radius: 8px;
             font-weight: 1000;
             letter-spacing: 0;
             box-shadow: 10px 10px 0 rgba(0,0,0,0.32);
             pointer-events: none;
+            opacity: 0;
+            z-index: 50;
+            clip-path: polygon(1% 8%, 7% 0, 98% 2%, 100% 82%, 94% 100%, 3% 97%, 0 26%);
+        }
+        #battle-result.show {
+            display: block;
+            animation: battleResultPop 0.42s cubic-bezier(.2,1.15,.3,1) both;
+        }
+        #battle-result.victory {
+            background: #ffdd59;
+        }
+        #battle-result.defeat {
+            background: #ff8fa3;
+        }
+        #battle-result.flee {
+            background: #ced6e0;
+        }
+        .battle-result-kicker {
+            display: inline-block;
+            margin-bottom: 10px;
+            padding: 4px 10px;
+            background: #111;
+            color: #fff8e8;
+            border: 3px solid #fff8e8;
+            font-size: 13px;
+            transform: rotate(-2deg);
+        }
+        .battle-result-title {
+            display: block;
+            font-size: clamp(34px, 7vw, 78px);
+            line-height: 0.95;
+            margin-bottom: 10px;
+        }
+        .battle-result-sub {
+            display: block;
+            font-size: clamp(13px, 2.3vw, 18px);
+            line-height: 1.35;
+        }
+        .battle-result-burst {
+            position: absolute;
+            right: 18px;
+            top: -18px;
+            width: 112px;
+            height: 112px;
+            opacity: 0.32;
+            background:
+                radial-gradient(circle at center, transparent 18%, #111 19%, #111 24%, transparent 25%),
+                conic-gradient(from 0deg, #111 0 8%, transparent 8% 16%, #111 16% 24%, transparent 24% 32%, #111 32% 40%, transparent 40% 48%, #111 48% 56%, transparent 56% 64%, #111 64% 72%, transparent 72% 80%, #111 80% 88%, transparent 88% 100%);
+            transform: rotate(18deg);
+        }
+        @keyframes battleResultPop {
+            0% {
+                opacity: 0;
+                transform: translate(-50%, -46%) scale(0.58) rotate(-7deg);
+            }
+            55% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1.06) rotate(1deg);
+            }
+            100% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1) rotate(-2deg);
+            }
         }
         #hover-info {
             position: absolute;
@@ -3466,6 +3531,31 @@
                 return 'attack';
             },
 
+            getBattleResultPayload(victory, fled, attacker, enemyState) {
+                if (fled) {
+                    return {
+                        className: 'flee',
+                        kicker: '战术撤离',
+                        title: '脱离战场',
+                        sub: `${attacker.name} 暂时退出了这场战斗，准备下次再来。`
+                    };
+                }
+                if (victory) {
+                    return {
+                        className: 'victory',
+                        kicker: '战斗结束',
+                        title: '胜利',
+                        sub: `${attacker.name} 压住了 ${enemyState.name}，这一轮的气势彻底打出来了。`
+                    };
+                }
+                return {
+                    className: 'defeat',
+                    kicker: '战斗结束',
+                    title: '败退',
+                    sub: `${attacker.name} 被 ${enemyState.name} 顶了回来，这一轮只能先收住阵脚。`
+                };
+            },
+
             chooseEnemyBattleAction(enemyState, kind, round) {
                 if (kind === 'monster') {
                     if (enemyState.hp <= enemyState.maxHp * 0.45) {
@@ -3549,25 +3639,47 @@
                 };
             },
 
-            async showBattleResult(victory, fled = false) {
+            async showBattleResult(victory, fled = false, attacker = null, enemyState = null) {
                 this.setBattlePhase(BattlePhase.RESULT, { victory, fled });
                 const result = document.getElementById('battle-result');
-                result.innerText = fled ? '撤退!' : (victory ? '胜利!' : '失败!');
-                result.style.background = victory ? '#ffdd59' : (fled ? '#ced6e0' : '#ff6b81');
-                result.style.display = 'block';
+                const actingAttacker = attacker || this.battleContext?.attacker || this.players[this.currentPlayerIndex];
+                const actingEnemy = enemyState || this.battleContext?.enemy || { name: '对手' };
+                const payload = this.getBattleResultPayload(victory, fled, actingAttacker, actingEnemy);
 
                 if (this.battleSnapshot) {
-                    const actor = victory ? this.battleSnapshot.attacker.mesh : (this.battleSnapshot.enemy ? this.battleSnapshot.enemy.mesh : this.battleSnapshot.attacker.mesh);
+                    const winnerMesh = victory
+                        ? this.battleSnapshot.attacker.mesh
+                        : (this.battleSnapshot.enemy ? this.battleSnapshot.enemy.mesh : this.battleSnapshot.attacker.mesh);
+                    const loserMesh = victory
+                        ? (this.battleSnapshot.enemy ? this.battleSnapshot.enemy.mesh : null)
+                        : this.battleSnapshot.attacker.mesh;
+                    if (winnerMesh) {
+                        await this.focusBattleCamera(winnerMesh, victory ? 1.86 : 1.7, 260);
+                    }
                     if (victory) {
-                        this.cheerCombatant(actor);
-                        this.spawnConfetti(actor.position);
+                        this.cheerCombatant(winnerMesh);
+                        if (loserMesh) this.slumpCombatant(loserMesh);
+                        this.spawnConfetti(winnerMesh.position);
                     } else if (!fled) {
-                        this.slumpCombatant(this.battleSnapshot.attacker.mesh);
+                        this.slumpCombatant(loserMesh);
+                        if (winnerMesh && winnerMesh !== loserMesh) this.cheerCombatant(winnerMesh);
                     }
                 }
 
-                await this.wait(900);
+                result.className = '';
+                result.innerHTML = `
+                    <div class="battle-result-burst"></div>
+                    <span class="battle-result-kicker">${this.escapeHtml(payload.kicker)}</span>
+                    <span class="battle-result-title">${this.escapeHtml(payload.title)}</span>
+                    <span class="battle-result-sub">${this.escapeHtml(payload.sub)}</span>
+                `;
+                void result.offsetWidth;
+                result.className = `${payload.className} show`;
+
+                await this.wait(1180);
+                result.className = '';
                 result.style.display = 'none';
+                result.innerHTML = '';
             },
 
             cheerCombatant(mesh) {
@@ -3861,7 +3973,7 @@
                 this.setBattlePhase(BattlePhase.RESULT, { victory, fled });
                 this.updateBattleStatus(attacker, enemyState, this.battleContext?.round || 0);
 
-                await this.showBattleResult(victory, fled);
+                await this.showBattleResult(victory, fled, attacker, enemyState);
                 await this.exitBattleScene();
                 this.hideBattleStatus();
                 this.setBattlePhase(BattlePhase.NONE);

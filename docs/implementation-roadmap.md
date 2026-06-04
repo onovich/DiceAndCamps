@@ -111,6 +111,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Made guard archetypes mechanically matter in siege fights with shield-based wall mitigation, scout-style evasion, and clearer role readouts in enemy challenge previews.
 - Reworked the battle command surface into explicit Attack, Skill, Defend, and Flee choices, while keeping deck-drawn cards as a secondary skill layer.
 - Gave enemy turns more JRPG identity with phase-aware actions like emergency wall repairs, guard rally turns, and role-driven counter moves instead of a single flat retaliation pattern.
+- Upgraded battle results into a comic-style payoff panel with winner-focus camera beats, stronger cheer/slump contrast, and more expressive victory or defeat copy.
 
 ## Validation Gates
 
