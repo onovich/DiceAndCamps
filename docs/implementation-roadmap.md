@@ -91,9 +91,12 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added battle deck HUD counters and card kind labels for the deck-combat UI.
 - Added explicit branch-choice and wizard-event states to keep new map/NPC flows out of generic moving/event states.
 - Upgraded wizard trades from random rewards to paid three-card deck-building choices.
-- Enlarged the board into a wider Monopoly-like outer loop with sparse inner reconnecting branches and less land-tile crowding.
+- Enlarged the board by adding more 2-unit grid road tiles to the main loop, not by increasing road spacing.
+- Added slim road connectors so the loop and branch direction read as continuous routes instead of isolated floating tiles.
+- Reduced land-tile density and tile size so buildable spaces no longer fill every gap between roads.
 - Replaced the branch-choice DOM menu with in-world road-tile arrows that appear only after the player reaches a fork mid-move.
 - Added pointer hover feedback for road tiles, land tiles, and branch-choice arrows.
+- Added hover information panels for player/enemy characters, owned/enemy facilities, and wild monsters.
 
 ## Validation Gates
 

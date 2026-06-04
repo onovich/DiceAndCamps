@@ -247,6 +247,43 @@
             box-shadow: 10px 10px 0 rgba(0,0,0,0.32);
             pointer-events: none;
         }
+        #hover-info {
+            position: absolute;
+            display: none;
+            min-width: 150px;
+            max-width: 240px;
+            padding: 10px 12px;
+            background: rgba(255, 248, 232, 0.96);
+            color: #111;
+            border: 3px solid #111;
+            border-radius: 6px;
+            box-shadow: 5px 5px 0 rgba(0,0,0,0.3);
+            font-size: 13px;
+            line-height: 1.35;
+            pointer-events: none;
+            z-index: 40;
+        }
+        #hover-info .info-title {
+            font-size: 15px;
+            font-weight: 900;
+            margin-bottom: 5px;
+        }
+        #hover-info .info-tag {
+            display: inline-block;
+            margin-bottom: 6px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #111;
+            color: #fff;
+            font-weight: 900;
+            font-size: 11px;
+        }
+        #hover-info .info-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            white-space: nowrap;
+        }
 
         #branch-menu {
             position: absolute;
@@ -354,6 +391,7 @@
         </div>
 
         <div id="battle-result"></div>
+        <div id="hover-info"></div>
 
         <div id="battle-ui">
             <button class="battle-command" onclick="Game.chooseBattleCommand('attack')">攻击</button>
@@ -473,11 +511,15 @@
             hoveredNode: null,
             hoveredSlot: null,
             hoveredBranchArrow: null,
+            hoveredInfoTarget: null,
             branchChoiceArrows: [],
             branchChoiceResolver: null,
-            mapStep: 3,
+            roadSegments: [],
+            mapStep: 2,
             mapBounds: null,
+            mainLoopCount: 0,
             roadTileColor: 0x7bed9f,
+            roadSegmentColor: 0x5fdca2,
             roadHoverColor: 0x2ed573,
             slotTileColor: 0xdfe4ea,
             slotHoverColor: 0xfeca57,
@@ -528,7 +570,7 @@
                 
                 // 正交相机设置
                 const aspect = window.innerWidth / window.innerHeight;
-                const frustumSize = 15;
+                const frustumSize = 18;
                 this.camera = new THREE.OrthographicCamera(
                     frustumSize * aspect / -2, frustumSize * aspect / 2,
                     frustumSize / 2, frustumSize / -2, 1, 1000
@@ -546,8 +588,8 @@
                 const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
                 dirLight.position.set(10, 20, 10);
                 dirLight.castShadow = true;
-                dirLight.shadow.camera.left = -15; dirLight.shadow.camera.right = 15;
-                dirLight.shadow.camera.top = 15; dirLight.shadow.camera.bottom = -15;
+                dirLight.shadow.camera.left = -24; dirLight.shadow.camera.right = 24;
+                dirLight.shadow.camera.top = 24; dirLight.shadow.camera.bottom = -24;
                 this.scene.add(dirLight);
                 
                 const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
@@ -583,11 +625,13 @@
             buildMap() {
                 // 构建规则正交网格：主干道是大回环，岔路只沿上下左右行走并最终回接。
                 const mainLoopCoords = [
-                    [-15,-9], [-12,-9], [-9,-9], [-6,-9], [-3,-9], [0,-9], [3,-9], [6,-9], [9,-9], [12,-9], [15,-9],
-                    [15,-6], [15,-3], [15,0], [15,3], [15,6], [15,9],
-                    [12,9], [9,9], [6,9], [3,9], [0,9], [-3,9], [-6,9], [-9,9], [-12,9], [-15,9],
-                    [-15,6], [-15,3], [-15,0], [-15,-3], [-15,-6]
+                    [-14,-8], [-12,-8], [-10,-8], [-8,-8], [-6,-8], [-4,-8], [-2,-8], [0,-8], [2,-8], [4,-8], [6,-8], [8,-8], [10,-8], [12,-8], [14,-8],
+                    [14,-6], [14,-4], [14,-2], [14,0], [14,2], [14,4], [14,6], [14,8],
+                    [12,8], [10,8], [8,8], [6,8], [4,8], [2,8], [0,8], [-2,8], [-4,8], [-6,8], [-8,8], [-10,8], [-12,8], [-14,8],
+                    [-14,6], [-14,4], [-14,2], [-14,0], [-14,-2], [-14,-4], [-14,-6]
                 ];
+                const mainLoopCount = mainLoopCoords.length;
+                this.mainLoopCount = mainLoopCount;
                 this.mapBounds = {
                     minX: Math.min(...mainLoopCoords.map(([x]) => x)),
                     maxX: Math.max(...mainLoopCoords.map(([x]) => x)),
@@ -603,38 +647,46 @@
                         next: (i + 1) % arr.length,
                         branches: []
                     })),
-                    { id: 32, x: 0, z: -6, next: 33 },
-                    { id: 33, x: 0, z: -3, next: 34 },
-                    { id: 34, x: 3, z: -3, next: 35 },
-                    { id: 35, x: 6, z: -3, next: 36 },
-                    { id: 36, x: 9, z: -3, next: 37 },
-                    { id: 37, x: 12, z: -3, next: 12 },
-                    { id: 38, x: 12, z: 3, next: 14 },
-                    { id: 39, x: 9, z: 3, next: 38 },
-                    { id: 40, x: 6, z: 3, next: 39 },
-                    { id: 41, x: 3, z: 3, next: 40 },
-                    { id: 42, x: 0, z: 3, next: 41 },
-                    { id: 43, x: 0, z: 6, next: 42 },
-                    { id: 44, x: -3, z: 3, next: 42 },
-                    { id: 45, x: -6, z: 3, next: 44 },
-                    { id: 46, x: -9, z: 3, next: 45 },
-                    { id: 47, x: -12, z: 3, next: 46 },
-                    { id: 48, x: -12, z: 0, next: 49 },
-                    { id: 49, x: -9, z: 0, next: 50 },
-                    { id: 50, x: -6, z: 0, next: 51 },
-                    { id: 51, x: -3, z: 0, next: 52 },
-                    { id: 52, x: 0, z: 0, next: 33 },
-                    { id: 53, x: -18, z: 0, next: 29, npc: 'WIZARD', deadEnd: true }
+                    { id: 44, x: 0, z: -6, next: 45 },
+                    { id: 45, x: 0, z: -4, next: 46 },
+                    { id: 46, x: 2, z: -4, next: 47 },
+                    { id: 47, x: 4, z: -4, next: 48 },
+                    { id: 48, x: 6, z: -4, next: 49 },
+                    { id: 49, x: 8, z: -4, next: 50 },
+                    { id: 50, x: 10, z: -4, next: 51 },
+                    { id: 51, x: 12, z: -4, next: 16 },
+                    { id: 52, x: 12, z: 4, next: 53 },
+                    { id: 53, x: 10, z: 4, next: 54 },
+                    { id: 54, x: 8, z: 4, next: 55 },
+                    { id: 55, x: 6, z: 4, next: 56 },
+                    { id: 56, x: 4, z: 4, next: 57 },
+                    { id: 57, x: 2, z: 4, next: 58 },
+                    { id: 58, x: 0, z: 4, next: 59 },
+                    { id: 59, x: 0, z: 6, next: 29 },
+                    { id: 60, x: -4, z: 6, next: 61 },
+                    { id: 61, x: -4, z: 4, next: 62 },
+                    { id: 62, x: -6, z: 4, next: 63 },
+                    { id: 63, x: -8, z: 4, next: 64 },
+                    { id: 64, x: -10, z: 4, next: 65 },
+                    { id: 65, x: -12, z: 4, next: 38 },
+                    { id: 66, x: -12, z: 0, next: 67 },
+                    { id: 67, x: -10, z: 0, next: 68 },
+                    { id: 68, x: -8, z: 0, next: 69 },
+                    { id: 69, x: -6, z: 0, next: 70 },
+                    { id: 70, x: -4, z: 0, next: 71 },
+                    { id: 71, x: -2, z: 0, next: 72 },
+                    { id: 72, x: 0, z: 0, next: 73 },
+                    { id: 73, x: 0, z: -2, next: 45 },
+                    { id: 74, x: -16, z: 0, next: 40, npc: 'WIZARD', deadEnd: true }
                 ];
-                nodeDefs[5].branches = [32];
-                nodeDefs[14].branches = [38];
-                nodeDefs[21].branches = [43];
-                nodeDefs[28].branches = [47];
-                nodeDefs[29].branches = [48, 53];
+                nodeDefs[7].branches = [44];
+                nodeDefs[20].branches = [52];
+                nodeDefs[31].branches = [60];
+                nodeDefs[40].branches = [66, 74];
 
                 nodeDefs.forEach((def, i) => {
                     const { x, z } = def;
-                    const nodeMesh = this.createToonBox(1.8, 0.5, 1.8, this.roadTileColor);
+                    const nodeMesh = this.createToonBox(1.45, 0.48, 1.45, this.roadTileColor);
                     nodeMesh.userData.baseY = 0;
                     nodeMesh.userData.floatingTile = true;
                     nodeMesh.position.set(x, -8, z);
@@ -649,7 +701,7 @@
                             { target: def.next, label: '主路' },
                             ...(def.branches || []).map(target => ({ target, label: '岔路' }))
                         ],
-                        isBranch: def.id >= 26,
+                        isBranch: def.id >= mainLoopCount,
                         npc: def.npc || null,
                         deadEnd: !!def.deadEnd,
                         slots: []
@@ -657,9 +709,47 @@
                     this.nodes.push(node);
                     if (node.npc === 'WIZARD') this.createWizardMarker(node);
                 });
+                this.createRoadSegments();
                 this.nodes.forEach(node => this.createAdjacentSlotsForNode(node));
 
                 this.animateMapIntro();
+            },
+
+            createRoadSegments() {
+                const created = new Set();
+                this.nodes.forEach(node => {
+                    const targets = [
+                        node.next,
+                        ...node.nextOptions
+                            .filter(option => option.target !== node.next)
+                            .map(option => option.target)
+                    ];
+
+                    targets.forEach(targetId => {
+                        const target = this.nodes[targetId];
+                        if (!target) return;
+                        const key = [node.id, target.id].sort((a, b) => a - b).join('-');
+                        if (created.has(key)) return;
+                        created.add(key);
+
+                        const dx = target.x - node.x;
+                        const dz = target.z - node.z;
+                        if ((dx !== 0 && dz !== 0) || Math.abs(dx) + Math.abs(dz) !== this.mapStep) return;
+
+                        const horizontal = dz === 0;
+                        const segment = this.createToonBox(
+                            horizontal ? 0.78 : 0.34,
+                            0.18,
+                            horizontal ? 0.34 : 0.78,
+                            this.roadSegmentColor,
+                            false
+                        );
+                        segment.userData.baseY = -0.06;
+                        segment.position.set((node.x + target.x) / 2, -8, (node.z + target.z) / 2);
+                        this.scene.add(segment);
+                        this.roadSegments.push(segment);
+                    });
+                });
             },
 
             createAdjacentSlotsForNode(node) {
@@ -675,13 +765,19 @@
                 const available = directions.filter(({ dx, dz }) => !roadPositions.has(`${node.x + dx},${node.z + dz}`));
                 const createFromDirection = ({ dx, dz }) => this.createSlot(node, node.x + dx, node.z + dz);
 
-                if (node.id < 32 && this.mapBounds) {
+                const isCornerNode = node.id < this.mainLoopCount && (
+                    (node.x === this.mapBounds.minX || node.x === this.mapBounds.maxX)
+                    && (node.z === this.mapBounds.minZ || node.z === this.mapBounds.maxZ)
+                );
+
+                if (node.id < this.mainLoopCount && this.mapBounds) {
                     const outward = [];
                     if (node.z === this.mapBounds.minZ) outward.push(...available.filter(dir => dir.edge === 'south'));
                     if (node.z === this.mapBounds.maxZ) outward.push(...available.filter(dir => dir.edge === 'north'));
                     if (node.x === this.mapBounds.minX) outward.push(...available.filter(dir => dir.edge === 'west'));
                     if (node.x === this.mapBounds.maxX) outward.push(...available.filter(dir => dir.edge === 'east'));
-                    (outward.length > 0 ? outward : available.slice(0, 1)).forEach(createFromDirection);
+                    const shouldCreate = isCornerNode || node.id % 2 === 0;
+                    if (shouldCreate) (outward.length > 0 ? outward : available.slice(0, 1)).forEach(createFromDirection);
                     return;
                 }
 
@@ -690,7 +786,7 @@
                     return;
                 }
 
-                if (available.length > 0) {
+                if (available.length > 0 && node.id % 3 === 0) {
                     const index = Math.abs(node.id + node.x * 3 + node.z) % available.length;
                     createFromDirection(available[index]);
                 }
@@ -714,6 +810,7 @@
 
             getMapIntroObjects() {
                 return [
+                    ...this.roadSegments,
                     ...this.nodes.map(n => n.mesh),
                     ...this.slots.map(s => s.mesh),
                     ...this.nodes.map(n => n.npcMesh).filter(Boolean),
@@ -770,7 +867,7 @@
                     return slotOverlap;
                 }
 
-                const slotMesh = this.createToonBox(1.6, 0.4, 1.6, 0xdfe4ea);
+                const slotMesh = this.createToonBox(1.3, 0.36, 1.3, this.slotTileColor);
                 slotMesh.userData.baseY = 0.05;
                 slotMesh.userData.floatingTile = true;
                 slotMesh.userData.floatAmplitude = 0.055;
@@ -1226,6 +1323,36 @@
                 return intersects.length > 0 ? intersects[0].object.userData.branchArrow : null;
             },
 
+            isObjectInTree(object, root) {
+                let current = object;
+                while (current) {
+                    if (current === root) return true;
+                    current = current.parent;
+                }
+                return false;
+            },
+
+            pickPlayer() {
+                const bodies = this.players.map(player => player.bodyMesh).filter(Boolean);
+                const intersects = this.raycaster.intersectObjects(bodies, true);
+                if (intersects.length === 0) return null;
+                return this.players.find(player => this.isObjectInTree(intersects[0].object, player.bodyMesh)) || null;
+            },
+
+            pickMonster() {
+                const groups = this.monsters.map(monster => monster.meshGroup).filter(Boolean);
+                const intersects = this.raycaster.intersectObjects(groups, true);
+                if (intersects.length === 0) return null;
+                return this.monsters.find(monster => this.isObjectInTree(intersects[0].object, monster.meshGroup)) || null;
+            },
+
+            pickFacilitySlot() {
+                const meshes = this.slots.map(slot => slot.facilityMesh).filter(Boolean);
+                const intersects = this.raycaster.intersectObjects(meshes, true);
+                if (intersects.length === 0) return null;
+                return this.slots.find(slot => slot.facilityMesh && this.isObjectInTree(intersects[0].object, slot.facilityMesh)) || null;
+            },
+
             pickSlot() {
                 const intersects = this.raycaster.intersectObjects(this.slots.map(s => s.mesh), false);
                 if (intersects.length === 0) return null;
@@ -1271,10 +1398,108 @@
                 }
             },
 
+            escapeHtml(value) {
+                return String(value)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            },
+
+            infoRow(label, value) {
+                return `<div class="info-row"><span>${this.escapeHtml(label)}</span><strong>${this.escapeHtml(value)}</strong></div>`;
+            },
+
+            buildPlayerInfo(player) {
+                const tag = player.isPlayer ? '我方角色' : '敌方角色';
+                return `
+                    <div class="info-title" style="color:#${player.color.toString(16).padStart(6, '0')}">${this.escapeHtml(player.name)}</div>
+                    <div class="info-tag">${tag}</div>
+                    ${this.infoRow('等级', `Lv.${player.level}`)}
+                    ${this.infoRow('HP', `${player.hp}/${player.maxHp}`)}
+                    ${this.infoRow('ATK', player.atk)}
+                    ${this.infoRow('金币', `${player.gold}G`)}
+                    ${this.infoRow('牌库', `${player.deck.length} 张`)}
+                `;
+            },
+
+            buildMonsterInfo(monster) {
+                return `
+                    <div class="info-title">${this.escapeHtml(monster.name)}</div>
+                    <div class="info-tag">野怪</div>
+                    ${this.infoRow('HP', `${monster.hp}/${monster.maxHp}`)}
+                    ${this.infoRow('ATK', monster.atk)}
+                    ${this.infoRow('奖励', `${monster.gold}G / ${monster.exp}EXP`)}
+                `;
+            },
+
+            buildFacilityInfo(slot) {
+                const ownedByPlayer = slot.owner?.isPlayer;
+                const tag = ownedByPlayer ? '我方建筑' : '敌方建筑';
+                const capacity = this.getGuardCapacity(slot);
+                return `
+                    <div class="info-title">${this.escapeHtml(this.getFacilityName(slot))}</div>
+                    <div class="info-tag">${tag}</div>
+                    ${this.infoRow('归属', slot.owner ? slot.owner.name : '无主')}
+                    ${this.infoRow('等级', `Lv.${slot.level}/${slot.maxLevel}`)}
+                    ${this.infoRow('防御', slot.defense)}
+                    ${this.infoRow('守军', `${slot.guards.length}/${capacity}`)}
+                `;
+            },
+
+            getHoverInfoTarget(facilitySlot, monster, player) {
+                if (player) return { type: 'player', ref: player };
+                if (facilitySlot && facilitySlot.owner) return { type: 'facility', ref: facilitySlot };
+                if (monster) return { type: 'monster', ref: monster };
+                return null;
+            },
+
+            isSameInfoTarget(a, b) {
+                return a?.type === b?.type && a?.ref === b?.ref;
+            },
+
+            renderHoverInfo(target) {
+                if (!target) return '';
+                if (target.type === 'player') return this.buildPlayerInfo(target.ref);
+                if (target.type === 'facility') return this.buildFacilityInfo(target.ref);
+                if (target.type === 'monster') return this.buildMonsterInfo(target.ref);
+                return '';
+            },
+
+            setHoveredInfoTarget(target, e) {
+                const tooltip = document.getElementById('hover-info');
+                if (!target) {
+                    this.hoveredInfoTarget = null;
+                    tooltip.style.display = 'none';
+                    return;
+                }
+                if (!this.isSameInfoTarget(this.hoveredInfoTarget, target)) {
+                    tooltip.innerHTML = this.renderHoverInfo(target);
+                    this.hoveredInfoTarget = target;
+                }
+                this.positionHoverInfo(e);
+                tooltip.style.display = 'block';
+            },
+
+            positionHoverInfo(e) {
+                const tooltip = document.getElementById('hover-info');
+                const margin = 14;
+                const width = tooltip.offsetWidth || 190;
+                const height = tooltip.offsetHeight || 120;
+                let x = e.clientX + margin;
+                let y = e.clientY + margin;
+                if (x + width > window.innerWidth - 8) x = e.clientX - width - margin;
+                if (y + height > window.innerHeight - 8) y = e.clientY - height - margin;
+                tooltip.style.left = `${Math.max(8, x)}px`;
+                tooltip.style.top = `${Math.max(8, y)}px`;
+            },
+
             clearHoverState() {
                 this.setHoveredBranchArrow(null);
                 this.setHoveredSlot(null);
                 this.setHoveredNode(null);
+                this.setHoveredInfoTarget(null);
                 document.getElementById('game-canvas').style.cursor = 'default';
             },
 
@@ -1283,14 +1508,19 @@
                 this.setRayFromPointer(e);
 
                 const branchArrow = this.state === TurnState.BRANCH_CHOICE ? this.pickBranchArrow() : null;
+                const player = this.pickPlayer();
+                const facilitySlot = this.pickFacilitySlot();
+                const monster = this.pickMonster();
+                const infoTarget = this.getHoverInfoTarget(facilitySlot, monster, player);
                 this.setHoveredBranchArrow(branchArrow);
                 const slot = this.pickSlot();
                 const node = this.pickNode();
                 this.setHoveredSlot(slot);
                 this.setHoveredNode(node);
+                this.setHoveredInfoTarget(infoTarget, e);
 
                 const canvas = document.getElementById('game-canvas');
-                canvas.style.cursor = branchArrow || slot || node ? 'pointer' : 'default';
+                canvas.style.cursor = branchArrow || infoTarget || slot || node ? 'pointer' : 'default';
             },
 
             initEvents() {
@@ -1974,6 +2204,7 @@
 
             captureBattleSnapshot(attacker, enemyMesh) {
                 const mapObjects = [
+                    ...this.roadSegments,
                     ...this.nodes.map(n => n.mesh),
                     ...this.slots.map(s => s.mesh),
                     ...this.slots.map(s => s.facilityMesh).filter(Boolean),
