@@ -1813,10 +1813,10 @@
             },
 
             pickPlayer() {
-                const bodies = this.players.map(player => player.bodyMesh).filter(Boolean);
-                const intersects = this.raycaster.intersectObjects(bodies, true);
+                const groups = this.players.map(player => player.meshGroup).filter(Boolean);
+                const intersects = this.raycaster.intersectObjects(groups, true);
                 if (intersects.length === 0) return null;
-                return this.players.find(player => this.isObjectInTree(intersects[0].object, player.bodyMesh)) || null;
+                return this.players.find(player => player.meshGroup && this.isObjectInTree(intersects[0].object, player.meshGroup)) || null;
             },
 
             pickMonster() {
@@ -1827,10 +1827,37 @@
             },
 
             pickFacilitySlot() {
-                const meshes = this.slots.map(slot => slot.facilityMesh).filter(Boolean);
+                const meshes = this.slots.flatMap(slot => [slot.facilityMesh, slot.guardMarkerGroup]).filter(Boolean);
                 const intersects = this.raycaster.intersectObjects(meshes, true);
                 if (intersects.length === 0) return null;
-                return this.slots.find(slot => slot.facilityMesh && this.isObjectInTree(intersects[0].object, slot.facilityMesh)) || null;
+                return this.slots.find(slot =>
+                    (slot.facilityMesh && this.isObjectInTree(intersects[0].object, slot.facilityMesh))
+                    || (slot.guardMarkerGroup && this.isObjectInTree(intersects[0].object, slot.guardMarkerGroup))
+                ) || null;
+            },
+
+            pickHoverInfoTarget() {
+                const hoverables = [
+                    ...this.players
+                        .filter(player => player.meshGroup)
+                        .map(player => ({ type: 'player', ref: player, root: player.meshGroup })),
+                    ...this.slots
+                        .filter(slot => slot.owner)
+                        .flatMap(slot => [
+                            slot.facilityMesh ? { type: 'facility', ref: slot, root: slot.facilityMesh } : null,
+                            slot.guardMarkerGroup ? { type: 'facility', ref: slot, root: slot.guardMarkerGroup } : null
+                        ])
+                        .filter(Boolean),
+                    ...this.monsters
+                        .filter(monster => monster.meshGroup)
+                        .map(monster => ({ type: 'monster', ref: monster, root: monster.meshGroup }))
+                ];
+
+                if (hoverables.length === 0) return null;
+                const intersects = this.raycaster.intersectObjects(hoverables.map(item => item.root), true);
+                if (intersects.length === 0) return null;
+                const hit = hoverables.find(item => this.isObjectInTree(intersects[0].object, item.root));
+                return hit ? { type: hit.type, ref: hit.ref } : null;
             },
 
             pickSlot() {
@@ -2005,10 +2032,7 @@
                 this.setRayFromPointer(e);
 
                 const branchArrow = this.state === TurnState.BRANCH_CHOICE ? this.pickBranchArrow() : null;
-                const player = this.pickPlayer();
-                const facilitySlot = this.pickFacilitySlot();
-                const monster = this.pickMonster();
-                const infoTarget = this.getHoverInfoTarget(facilitySlot, monster, player);
+                const infoTarget = this.pickHoverInfoTarget();
                 this.setHoveredBranchArrow(branchArrow);
                 const slot = this.pickSlot();
                 const node = this.pickNode();
