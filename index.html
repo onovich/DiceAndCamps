@@ -97,6 +97,7 @@
         .build-btn.training { background: #ffb142; color: #332000; }
         .build-btn.barracks { background: #ff7f50; color: white; }
         .build-btn.command { background: #4b7bec; color: white; }
+        .build-btn.fortress { background: #8c564b; color: white; }
         .build-btn.workshop { background: #747d8c; color: white; }
         .build-btn.upgrade { background: #2ed573; color: #063b1f; }
         .build-btn.demolish { background: #57606f; color: white; }
@@ -601,6 +602,7 @@
                 <button id="btn-build-training" class="build-btn training" onclick="Game.buildFacility('TRAINING')">训练营 (120G)</button>
                 <button id="btn-build-barracks" class="build-btn barracks" onclick="Game.buildFacility('BARRACKS')">兵营 (110G)</button>
                 <button id="btn-build-command" class="build-btn command" onclick="Game.buildFacility('COMMAND')">指挥所 (125G)</button>
+                <button id="btn-build-fortress" class="build-btn fortress" onclick="Game.buildFacility('FORTRESS')">堡垒 (140G)</button>
                 <button id="btn-build-workshop" class="build-btn workshop" onclick="Game.buildFacility('WORKSHOP')">城防工坊 (130G)</button>
                 <button id="btn-upgrade-facility" class="build-btn upgrade" onclick="Game.upgradeSelectedFacility()">升级</button>
                 <button id="btn-recruit-guard" class="build-btn recruit" onclick="Game.recruitGuardForSelectedFacility()">招募守军</button>
@@ -752,6 +754,7 @@
                 TRAINING: { name: '训练营', cost: 120, color: 0xffb142, maxLevel: 3, baseDefense: 16, allowsGuards: true, guardSlots: 1 },
                 BARRACKS: { name: '兵营', cost: 110, color: 0xff7f50, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 2 },
                 COMMAND: { name: '指挥所', cost: 125, color: 0x4b7bec, maxLevel: 3, baseDefense: 17, allowsGuards: true, guardSlots: 2 },
+                FORTRESS: { name: '堡垒', cost: 140, color: 0x8c564b, maxLevel: 3, baseDefense: 28, allowsGuards: false, guardSlots: 0 },
                 WORKSHOP: { name: '城防工坊', cost: 130, color: 0x747d8c, maxLevel: 3, baseDefense: 24, allowsGuards: false, guardSlots: 0 }
             },
             guardArchetypes: [
@@ -1533,6 +1536,9 @@
             },
 
             getUpgradeDefenseGain(slot) {
+                if (slot?.type === 'FORTRESS') {
+                    return 28 + slot.level * 12;
+                }
                 return this.canFacilityHostGuards(slot)
                     ? 12 + slot.level * 4
                     : 20 + slot.level * 9;
@@ -1677,19 +1683,23 @@
                 const freeGuardHp = slot.type === 'GUARD' && slot.guards.length === 0 ? 24 + slot.level * 8 : 0;
                 const guardHp = slot.guards.reduce((sum, guard) => sum + guard.hp, 0) + freeGuardHp;
                 const guardAtk = slot.guards.reduce((sum, guard) => sum + guard.atk, 0);
-                const wallArmor = roleCounts.SHIELD * 3 + (slot.type === 'WORKSHOP' ? 2 + slot.level : 0);
+                const fortressWallBonus = slot.type === 'FORTRESS' ? 18 + slot.level * 10 : 0;
+                const fortressArmorBonus = slot.type === 'FORTRESS' ? 4 + slot.level * 2 : 0;
+                const wallArmor = roleCounts.SHIELD * 3 + (slot.type === 'WORKSHOP' ? 2 + slot.level : 0) + fortressArmorBonus;
                 const guardArmor = roleCounts.SHIELD * 2 + (slot.type === 'COMMAND' ? 1 + Math.floor(slot.level / 2) : 0);
                 const dodgeChance = Math.min(0.36, roleCounts.SCOUT * 0.08);
                 const counterBonus = roleCounts.SPEAR * 2;
-                const fortifiedWallHp = wallHp + roleCounts.SHIELD * 10;
-                const wallAtk = 3 + slot.level + Math.ceil(guardAtk * 0.45) + roleCounts.SPEAR;
+                const fortifiedWallHp = wallHp + roleCounts.SHIELD * 10 + fortressWallBonus;
+                const wallAtk = 3 + slot.level + Math.ceil(guardAtk * 0.45) + roleCounts.SPEAR + (slot.type === 'FORTRESS' ? 2 + slot.level : 0);
                 const commandBonus = slot.type === 'COMMAND' ? 2 + roleCounts.total : 0;
                 const guardPhaseAtk = hasGuard ? 5 + slot.level * 2 + guardAtk + counterBonus + roleCounts.SCOUT + commandBonus : wallAtk;
                 const atk = hasGuard ? wallAtk : guardPhaseAtk;
                 const hp = fortifiedWallHp + guardHp;
-                const battlePlan = slot.type === 'COMMAND' && hasGuard
+                const battlePlan = slot.type === 'FORTRESS'
+                    ? '只有厚重堡墙，但会持续加固并压制来犯者'
+                    : (slot.type === 'COMMAND' && hasGuard
                     ? '守军会在指挥所号令下整队反扑'
-                    : (hasGuard ? '守军躲在城墙后' : '只有城墙');
+                    : (hasGuard ? '守军躲在城墙后' : '只有城墙'));
                 return {
                     hasGuard,
                     wallHp: fortifiedWallHp,
@@ -1712,8 +1722,8 @@
             getFacilityBattleRewards(slot) {
                 const guardCount = slot.guards?.length || 0;
                 return {
-                    gold: 70 + slot.level * 35 + guardCount * 25 + (slot.type === 'WORKSHOP' ? 20 : 0) + (slot.type === 'COMMAND' ? 15 : 0),
-                    exp: 30 + slot.level * 15 + guardCount * 10 + (slot.type === 'GUARD' ? 10 : 0) + (slot.type === 'COMMAND' ? 12 : 0)
+                    gold: 70 + slot.level * 35 + guardCount * 25 + (slot.type === 'WORKSHOP' ? 20 : 0) + (slot.type === 'COMMAND' ? 15 : 0) + (slot.type === 'FORTRESS' ? 25 : 0),
+                    exp: 30 + slot.level * 15 + guardCount * 10 + (slot.type === 'GUARD' ? 10 : 0) + (slot.type === 'COMMAND' ? 12 : 0) + (slot.type === 'FORTRESS' ? 18 : 0)
                 };
             },
 
@@ -1742,7 +1752,7 @@
             },
 
             setBuildMenuButtons(mode) {
-                const buildIds = ['btn-build-trap', 'btn-build-guard', 'btn-build-income', 'btn-build-heal', 'btn-build-training', 'btn-build-barracks', 'btn-build-command', 'btn-build-workshop'];
+                const buildIds = ['btn-build-trap', 'btn-build-guard', 'btn-build-income', 'btn-build-heal', 'btn-build-training', 'btn-build-barracks', 'btn-build-command', 'btn-build-fortress', 'btn-build-workshop'];
                 document.querySelector('.build-options').style.display = 'flex';
                 const player = this.players[this.currentPlayerIndex];
                 buildIds.forEach(id => {
@@ -2375,6 +2385,14 @@
                         this.log(`指挥所吹响集结号，让同路块守军完成整队：${guards.length} 名守军恢复 ${guardHeal} HP 并获得 +1 ATK，你也获得了 +1 ATK。`);
                         this.createFloatingText(`集结号 x${guards.length}`, slot.mesh.position, "#4b7bec");
                     }
+                } else if (slot.type === 'FORTRESS') {
+                    const fortify = 6 + slot.level * 4;
+                    const playerHeal = 4 + slot.level * 3;
+                    slot.defense += fortify;
+                    player.hp = Math.min(player.maxHp, player.hp + playerHeal);
+                    this.updateFacilityVisual(slot);
+                    this.log(`路过自己的堡垒，厚墙再度加固，防御 +${fortify}，同时为部队提供了 ${playerHeal} 点整补。`);
+                    this.createFloatingText(`堡墙 +${fortify}`, slot.mesh.position, "#8c564b");
                 } else if (slot.type === 'GUARD') {
                     if (slot.guards.length > 0) {
                         const guard = slot.guards[(slot.level + slot.guards.length - 1) % slot.guards.length];
@@ -2635,6 +2653,13 @@
                     slot.owner.atk += 1;
                     this.log(`敌方指挥所吹响了集结号，整编了同路块守军与防线。`);
                     this.createFloatingText("敌方集结", slot.mesh.position, "#4b7bec");
+                } else if (slot.type === 'FORTRESS') {
+                    const fortify = 7 + slot.level * 4;
+                    slot.defense += fortify;
+                    slot.owner.hp = Math.min(slot.owner.maxHp, slot.owner.hp + 5 + slot.level * 2);
+                    this.updateFacilityVisual(slot);
+                    this.log(`敌方堡垒重新封死了垛口与射击孔，墙体显得更难啃。`);
+                    this.createFloatingText("敌方堡墙", slot.mesh.position, "#8c564b");
                 } else if (slot.type === 'WORKSHOP') {
                     const selfFortify = 5 + slot.level * 2;
                     slot.defense += selfFortify;
@@ -2822,7 +2847,7 @@
                 }
 
                 const emptySlot = slots.find(s => s.type === 'EMPTY' && !s.monster);
-                const preferredTypes = ['COMMAND', 'BARRACKS', 'WORKSHOP', 'GUARD', 'INCOME', 'HEAL', 'TRAINING', 'TRAP'];
+                const preferredTypes = ['FORTRESS', 'COMMAND', 'BARRACKS', 'WORKSHOP', 'GUARD', 'INCOME', 'HEAL', 'TRAINING', 'TRAP'];
                 const types = preferredTypes.filter(type => player.gold >= this.facilityConfigs[type].cost);
                 if (emptySlot && types.length > 0) {
                     this.selectedSlot = emptySlot;
@@ -2859,7 +2884,7 @@
                     document.getElementById('build-desc').innerText = `${slot.monster.name} 占着这块地。打败它后才能在这里建造。胜利不消耗行动，失败会消耗行动。`;
                 } else if (slot.type === 'EMPTY') {
                     this.setBuildMenuButtons('build');
-                    document.getElementById('build-desc').innerText = "选择要建造的设施。兵营偏向练兵和补守军，城防工坊偏向堆墙和抬高攻城难度。建造会消耗当前行动。";
+                    document.getElementById('build-desc').innerText = "选择要建造的设施。兵营偏向练兵和补守军，指挥所负责整队联动，堡垒与城防工坊则更偏向堆墙和抬高攻城难度。建造会消耗当前行动。";
                 } else if (slot.owner === player) {
                     this.setBuildMenuButtons('owned');
                     const upgradeBtn = document.getElementById('btn-upgrade-facility');
@@ -3750,6 +3775,14 @@
                 }
 
                 if (enemyState.phase === 'wall') {
+                    if (enemyState.facilityType === 'FORTRESS' && round % 2 === 0) {
+                        return {
+                            type: 'fortify',
+                            name: '封门加固',
+                            label: '堡垒正在用厚门与垛墙拖延时间',
+                            heal: 10 + Math.min(14, Math.floor(enemyState.wallMaxHp * 0.1))
+                        };
+                    }
                     if (enemyState.facilityType === 'WORKSHOP' && enemyState.wallHp < enemyState.maxHp && round % 2 === 0) {
                         return {
                             type: 'fortify',
@@ -4341,6 +4374,7 @@
                     if(type === 'TRAINING') { fColor = config.color; geom = new THREE.ConeGeometry(0.72, 1.05, 4); }
                     if(type === 'BARRACKS') { fColor = config.color; geom = new THREE.BoxGeometry(1.0, 0.9, 0.8); }
                     if(type === 'COMMAND') { fColor = config.color; geom = new THREE.CylinderGeometry(0.48, 0.82, 1.15, 5); }
+                    if(type === 'FORTRESS') { fColor = config.color; geom = new THREE.BoxGeometry(1.08, 1.0, 1.08); }
                     if(type === 'WORKSHOP') { fColor = config.color; geom = new THREE.CylinderGeometry(0.78, 0.9, 0.7, 6); }
 
                     const mesh = new THREE.Mesh(geom, new THREE.MeshToonMaterial({color: fColor}));
