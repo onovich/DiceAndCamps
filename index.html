@@ -98,6 +98,7 @@
         .build-btn.upgrade { background: #2ed573; color: #063b1f; }
         .build-btn.demolish { background: #57606f; color: white; }
         .build-btn.recruit { background: #ff9f1a; color: #211300; }
+        .build-btn.transfer { background: #70a1ff; color: white; }
         .build-btn.monster { background: #ff6b81; color: white; }
         .build-btn.challenge { background: #1e90ff; color: white; }
         .build-btn.cancel { background: #ced6e0; color: #333; }
@@ -468,11 +469,13 @@
                 <button id="btn-build-training" class="build-btn training" onclick="Game.buildFacility('TRAINING')">训练营 (120G)</button>
                 <button id="btn-upgrade-facility" class="build-btn upgrade" onclick="Game.upgradeSelectedFacility()">升级</button>
                 <button id="btn-recruit-guard" class="build-btn recruit" onclick="Game.recruitGuardForSelectedFacility()">招募守军</button>
+                <button id="btn-transfer-guard" class="build-btn transfer" onclick="Game.openGuardTransferMenu()">调防守军</button>
                 <button id="btn-demolish-facility" class="build-btn demolish" onclick="Game.demolishSelectedFacility()">拆毁</button>
                 <button id="btn-fight-monster" class="build-btn monster" onclick="Game.fightSelectedMonster()">讨伐野怪</button>
                 <button id="btn-challenge-facility" class="build-btn challenge" onclick="Game.challengeSelectedFacility()">挑战建筑</button>
                 <button class="build-btn cancel" onclick="Game.closeBuildMenu()">返回选择</button>
             </div>
+            <div id="guard-transfer-options" class="build-options" style="display:none;"></div>
         </div>
 
         <div id="branch-menu" class="panel">
@@ -617,6 +620,11 @@
                 HEAL: { name: '治疗营地', cost: 90, color: 0x7bed9f, maxLevel: 3, baseDefense: 12, allowsGuards: true, guardSlots: 1 },
                 TRAINING: { name: '训练营', cost: 120, color: 0xffb142, maxLevel: 3, baseDefense: 16, allowsGuards: true, guardSlots: 1 }
             },
+            guardArchetypes: [
+                { key: 'SHIELD', name: '盾卫', maxHp: 28, atk: 4, color: 0x70a1ff },
+                { key: 'SPEAR', name: '枪兵', maxHp: 22, atk: 6, color: 0xffb142 },
+                { key: 'SCOUT', name: '斥候', maxHp: 18, atk: 7, color: 0x2ed573 }
+            ],
             guardRecruitCost: 65,
             cameraOffset: new THREE.Vector3(0, 0, 0),
             cameraTarget: new THREE.Vector3(0, 0, 0),
@@ -632,6 +640,7 @@
             hoveredInfoTarget: null,
             branchChoiceArrows: [],
             branchChoiceResolver: null,
+            guardTransferSource: null,
             roadSegments: [],
             mapStep: 2,
             mapBounds: null,
@@ -1406,16 +1415,47 @@
             },
 
             createGuard(slot) {
+                const archetype = this.guardArchetypes[(slot.guards.length + slot.level - 1) % this.guardArchetypes.length];
                 const index = slot.guards.length + 1;
                 return {
-                    name: `${this.getFacilityName(slot)}守军${index}`,
-                    hp: 18 + slot.level * 7,
-                    atk: 5 + slot.level * 3
+                    key: archetype.key,
+                    roleName: archetype.name,
+                    name: `${archetype.name}${index}`,
+                    maxHp: archetype.maxHp + slot.level * 5,
+                    hp: archetype.maxHp + slot.level * 5,
+                    atk: archetype.atk + slot.level * 2,
+                    color: archetype.color
                 };
             },
 
             getGuardPower(slot) {
                 return slot.guards.reduce((sum, guard) => sum + guard.hp + guard.atk * 3, 0);
+            },
+
+            getGuardSummary(slot, joiner = ' / ') {
+                if (!slot.guards || slot.guards.length === 0) return '无守军';
+                return slot.guards
+                    .map(guard => `${guard.name} HP${guard.hp}/${guard.maxHp} ATK${guard.atk}`)
+                    .join(joiner);
+            },
+
+            getTransferTargets(slot, owner) {
+                if (!slot || !owner) return [];
+                return this.activeNode.slots.filter(other =>
+                    other !== slot
+                    && other.owner === owner
+                    && other.type !== 'EMPTY'
+                    && this.canFacilityHostGuards(other)
+                    && other.guards.length < this.getGuardCapacity(other)
+                );
+            },
+
+            resetGuardTransferMenu() {
+                this.guardTransferSource = null;
+                const options = document.getElementById('guard-transfer-options');
+                options.innerHTML = '';
+                options.style.display = 'none';
+                document.querySelector('#build-menu .build-options').style.display = 'flex';
             },
 
             getBuildingBattlePreview(slot) {
@@ -1464,16 +1504,19 @@
                 });
                 const upgradeBtn = document.getElementById('btn-upgrade-facility');
                 const recruitBtn = document.getElementById('btn-recruit-guard');
+                const transferBtn = document.getElementById('btn-transfer-guard');
                 const demolishBtn = document.getElementById('btn-demolish-facility');
                 const monsterBtn = document.getElementById('btn-fight-monster');
                 const challengeBtn = document.getElementById('btn-challenge-facility');
                 upgradeBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
                 recruitBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
+                transferBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
                 demolishBtn.style.display = mode === 'owned' ? 'inline-block' : 'none';
                 monsterBtn.style.display = mode === 'monster' ? 'inline-block' : 'none';
                 challengeBtn.style.display = mode === 'enemy' ? 'inline-block' : 'none';
                 upgradeBtn.disabled = false;
                 recruitBtn.disabled = false;
+                transferBtn.disabled = false;
                 demolishBtn.disabled = false;
                 monsterBtn.disabled = false;
                 challengeBtn.disabled = false;
@@ -1496,7 +1539,7 @@
 
                 const group = new THREE.Group();
                 slot.guards.forEach((guard, index) => {
-                    const marker = this.createToonBox(0.22, 0.28, 0.22, 0x1e90ff, false);
+                    const marker = this.createToonBox(0.22, 0.28, 0.22, guard.color || 0x1e90ff, false);
                     const angle = (Math.PI * 2 * index) / Math.max(1, slot.guards.length);
                     marker.position.set(Math.cos(angle) * 0.55, 0.95, Math.sin(angle) * 0.55);
                     group.add(marker);
@@ -1667,6 +1710,7 @@
                     ${this.infoRow('等级', `Lv.${slot.level}/${slot.maxLevel}`)}
                     ${this.infoRow('防御', slot.defense)}
                     ${this.infoRow('守军', guardText)}
+                    ${this.infoRow('驻军编成', this.getGuardSummary(slot, ' | '))}
                     ${this.infoRow('防守类型', preview.label)}
                     ${this.infoRow('城墙HP', preview.wallHp)}
                     ${this.infoRow('挑战HP', preview.hp)}
@@ -2015,7 +2059,24 @@
             },
 
             async triggerOwnedFacility(slot, player) {
-                if (slot.type === 'INCOME') {
+                if (slot.type === 'GUARD') {
+                    if (slot.guards.length > 0) {
+                        const guard = slot.guards[(slot.level + slot.guards.length - 1) % slot.guards.length];
+                        const hpGain = 3 + slot.level * 2;
+                        const atkGain = slot.level >= 2 ? 1 : 0;
+                        guard.maxHp += slot.level === slot.maxLevel ? 1 : 0;
+                        guard.hp = Math.min(guard.maxHp, guard.hp + hpGain);
+                        guard.atk += atkGain;
+                        this.log(`路过自己的守卫哨站，${guard.name} 完成整备，HP +${hpGain}${atkGain > 0 ? ` / ATK +${atkGain}` : ''}`);
+                        this.createFloatingText(`整备 ${guard.name}`, slot.mesh.position, "#70a1ff");
+                        this.updateGuardMarkers(slot);
+                    } else {
+                        const defenseGain = 2 + slot.level;
+                        slot.defense += defenseGain;
+                        this.log(`守卫哨站无人驻守，城墙临时加固，防御 +${defenseGain}`);
+                        this.createFloatingText(`防御 +${defenseGain}`, slot.mesh.position, "#70a1ff");
+                    }
+                } else if (slot.type === 'INCOME') {
                     const income = 40 + slot.level * 25 + slot.guards.length * 10;
                     this.log(`路过自己的金矿，收益 +${income}G`);
                     player.gold += income;
@@ -2025,11 +2086,17 @@
                     const before = player.hp;
                     player.hp = Math.min(player.maxHp, player.hp + heal);
                     const actual = player.hp - before;
+                    slot.guards.forEach(guard => {
+                        guard.hp = Math.min(guard.maxHp, guard.hp + 5 + slot.level * 2);
+                    });
                     this.log(`治疗营地恢复 ${actual} HP。`);
                     this.createFloatingText(`+${actual}HP`, player.meshGroup.position, "#2ed573");
                 } else if (slot.type === 'TRAINING') {
                     const atkGain = 1 + Math.floor(slot.level / 2);
                     player.atk += atkGain;
+                    slot.guards.forEach(guard => {
+                        guard.atk += 1;
+                    });
                     this.log(`训练营鼓舞士气，ATK +${atkGain}。`);
                     this.createFloatingText(`ATK +${atkGain}`, player.meshGroup.position, "#ffb142");
                 }
@@ -2272,6 +2339,7 @@
             enterBuildPhase(player) {
                 this.transitionTo(TurnState.ACTION_SELECT);
                 this.setActionConsumed(false);
+                this.resetGuardTransferMenu();
                 const slots = this.activeNode.slots;
 
                 // 阶段一：地块高亮跳动
@@ -2296,6 +2364,18 @@
 
             performAiBuildAction(player, slots) {
                 const ownedSlots = slots.filter(s => s.owner === player && s.type !== 'EMPTY');
+                const transferTarget = ownedSlots
+                    .filter(slot => this.canFacilityHostGuards(slot) && slot.guards.length === 0)
+                    .sort((a, b) => a.defense - b.defense)[0];
+                const transferSource = ownedSlots
+                    .filter(slot => slot.guards.length > 1)
+                    .sort((a, b) => b.guards.length - a.guards.length)[0];
+                if (transferSource && transferTarget && transferSource !== transferTarget) {
+                    this.performGuardTransfer(transferSource, transferTarget);
+                    this.endTurn();
+                    return;
+                }
+
                 const recruitable = ownedSlots
                     .filter(slot => this.canFacilityHostGuards(slot)
                         && slot.guards.length < this.getGuardCapacity(slot)
@@ -2342,6 +2422,7 @@
                 if (!this.activeNode.slots.includes(slot)) return;
                 
                 this.stopSlotHighlightOnly();
+                this.resetGuardTransferMenu();
                 this.selectedSlot = slot;
 
                 const player = this.players[this.currentPlayerIndex];
@@ -2358,21 +2439,25 @@
                     this.setBuildMenuButtons('owned');
                     const upgradeBtn = document.getElementById('btn-upgrade-facility');
                     const recruitBtn = document.getElementById('btn-recruit-guard');
+                    const transferBtn = document.getElementById('btn-transfer-guard');
                     const demolishBtn = document.getElementById('btn-demolish-facility');
                     const maxed = this.isFacilityMaxLevel(slot);
                     const guardCapacity = this.getGuardCapacity(slot);
                     const guardCost = this.getGuardRecruitCost(slot);
+                    const transferTargets = this.getTransferTargets(slot, player);
                     upgradeBtn.disabled = maxed || player.gold < this.getUpgradeCost(slot);
                     upgradeBtn.innerText = maxed ? "已满级" : `升级 (${this.getUpgradeCost(slot)}G)`;
                     recruitBtn.disabled = !this.canFacilityHostGuards(slot) || slot.guards.length >= guardCapacity || player.gold < guardCost;
                     recruitBtn.innerText = this.canFacilityHostGuards(slot)
                         ? `招募守军 (${guardCost}G)`
                         : "不可驻防";
+                    transferBtn.disabled = slot.guards.length === 0 || transferTargets.length === 0;
+                    transferBtn.innerText = transferTargets.length > 0 ? "调防守军" : "无可调目标";
                     demolishBtn.disabled = false;
                     const guardNote = this.canFacilityHostGuards(slot)
                         ? `守军 ${slot.guards.length}/${guardCapacity}`
                         : '不可驻防，但升级会更快提高防御';
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。升级或招募会消耗行动，拆毁不会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
@@ -2387,7 +2472,76 @@
 
             closeBuildMenu() {
                 document.getElementById('build-menu').style.display = 'none';
+                this.resetGuardTransferMenu();
                 this.enterBuildPhase(this.players[this.currentPlayerIndex]); // 返回阶段一重新选
+            },
+
+            openGuardTransferMenu() {
+                const player = this.players[this.currentPlayerIndex];
+                const sourceSlot = this.selectedSlot;
+                if (!sourceSlot || sourceSlot.owner !== player || sourceSlot.guards.length === 0) {
+                    this.log("这座建筑没有可调动的守军。");
+                    return;
+                }
+
+                const targets = this.getTransferTargets(sourceSlot, player);
+                if (targets.length === 0) {
+                    this.log("当前没有可接收守军的友方建筑。");
+                    return;
+                }
+
+                this.guardTransferSource = sourceSlot;
+                document.querySelector('#build-menu .build-options').style.display = 'none';
+                const options = document.getElementById('guard-transfer-options');
+                options.innerHTML = '';
+                document.getElementById('build-desc').innerText = `选择调防目标。将 ${sourceSlot.guards[sourceSlot.guards.length - 1].name} 调往哪座建筑？调防会消耗本回合行动。`;
+
+                targets.forEach(target => {
+                    const btn = document.createElement('button');
+                    btn.className = 'build-btn transfer';
+                    btn.innerText = `${this.getFacilityName(target)} (${target.guards.length}/${this.getGuardCapacity(target)})`;
+                    btn.onclick = () => this.transferGuardToSlot(this.slots.indexOf(target));
+                    options.appendChild(btn);
+                });
+
+                const backBtn = document.createElement('button');
+                backBtn.className = 'build-btn cancel';
+                backBtn.innerText = '返回建筑操作';
+                backBtn.onclick = () => this.handleSlotClick(sourceSlot);
+                options.appendChild(backBtn);
+                options.style.display = 'flex';
+            },
+
+            transferGuardToSlot(targetIndex) {
+                const player = this.players[this.currentPlayerIndex];
+                const sourceSlot = this.guardTransferSource;
+                const targetSlot = this.slots[targetIndex];
+                if (!sourceSlot || !targetSlot || sourceSlot.owner !== player || targetSlot.owner !== player) {
+                    this.log("守军调防失败，目标已变化。");
+                    return;
+                }
+                if (sourceSlot.guards.length === 0) {
+                    this.log("原建筑已经没有守军了。");
+                    return;
+                }
+                if (!this.canFacilityHostGuards(targetSlot) || targetSlot.guards.length >= this.getGuardCapacity(targetSlot)) {
+                    this.log("目标建筑无法继续接收守军。");
+                    return;
+                }
+
+                this.performGuardTransfer(sourceSlot, targetSlot);
+                document.getElementById('build-menu').style.display = 'none';
+                this.updateUI();
+                this.finishAction(true);
+            },
+
+            performGuardTransfer(sourceSlot, targetSlot) {
+                const guard = sourceSlot.guards.pop();
+                targetSlot.guards.push(guard);
+                this.updateGuardMarkers(sourceSlot);
+                this.updateGuardMarkers(targetSlot);
+                this.createFloatingText(`调防 ${guard.name}`, targetSlot.mesh.position, "#70a1ff");
+                this.log(`${guard.name} 已从 ${this.getFacilityName(sourceSlot)} 调往 ${this.getFacilityName(targetSlot)}。`);
             },
 
             async fightSelectedMonster() {
@@ -3318,6 +3472,7 @@
                 this.clearHoverState();
                 this.hideBattleStatus();
                 this.restoreDiceOccluders();
+                this.resetGuardTransferMenu();
                 this.setBattlePhase(BattlePhase.NONE);
                 this.battleContext = null;
                 this.setActionConsumed(false);

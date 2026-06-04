@@ -105,6 +105,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added snapshot-based dice occluder fading so nearby buildings and guard markers fade during dice rolls and restore exactly afterward.
 - Refined shared road-node stances with smaller character bodies, colored stance pads, and bouncy reflow animations.
 - Strengthened pre-battle taunts with jagged comic panels, speaker labels, and monster/facility-specific lines.
+- Expanded the garrison layer with typed guards, owned guard-post training events, action-phase guard transfers, richer facility hover info, and AI guard reassignments.
 
 ## Validation Gates
 
