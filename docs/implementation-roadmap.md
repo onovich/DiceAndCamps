@@ -101,6 +101,7 @@ This roadmap tracks the requested gameplay goals without dropping scope. Work sh
 - Added clearer JRPG combat feedback: defense shields, hit sparks, and enemy counterattack lunges.
 - Added a battle status HUD with both combatants' HP bars, round count, and current battle phase.
 - Added shared building battle previews for hover panels, enemy challenge menus, and wall/guard combat stats.
+- Added AI building management so opponents recruit guards and upgrade owned facilities before building new ones.
 
 ## Validation Gates
 

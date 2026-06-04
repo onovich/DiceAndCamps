@@ -2163,18 +2163,44 @@
                     this.log("请点击闪烁的副地块进行互动/建造。");
                     document.getElementById('btn-end').style.display = 'block';
                 } else {
-                    // AI 自动逻辑：随机选个空地造建筑
+                    // AI 自动逻辑：优先巩固自己的建筑，再考虑新建。
                     setTimeout(() => {
                         this.stopSlotHighlightOnly();
-                        const emptySlot = slots.find(s => s.type === 'EMPTY' && !s.monster);
-                        const types = Object.keys(this.facilityConfigs).filter(type => player.gold >= this.facilityConfigs[type].cost);
-                        if (emptySlot && types.length > 0) {
-                            this.selectedSlot = emptySlot;
-                            this.buildFacility(types[Math.floor(Math.random()*types.length)]);
-                        } else {
-                            this.endTurn();
-                        }
+                        this.performAiBuildAction(player, slots);
                     }, 1000);
+                }
+            },
+
+            performAiBuildAction(player, slots) {
+                const ownedSlots = slots.filter(s => s.owner === player && s.type !== 'EMPTY');
+                const recruitable = ownedSlots
+                    .filter(slot => this.canFacilityHostGuards(slot)
+                        && slot.guards.length < this.getGuardCapacity(slot)
+                        && player.gold >= this.getGuardRecruitCost(slot))
+                    .sort((a, b) => this.getBuildingBattlePreview(a).hp - this.getBuildingBattlePreview(b).hp);
+                if (recruitable.length > 0) {
+                    this.performRecruitGuard(player, recruitable[0]);
+                    this.endTurn();
+                    return;
+                }
+
+                const upgradeable = ownedSlots
+                    .filter(slot => !this.isFacilityMaxLevel(slot) && player.gold >= this.getUpgradeCost(slot))
+                    .sort((a, b) => a.level - b.level || a.defense - b.defense);
+                if (upgradeable.length > 0) {
+                    this.performUpgradeFacility(player, upgradeable[0]);
+                    this.endTurn();
+                    return;
+                }
+
+                const emptySlot = slots.find(s => s.type === 'EMPTY' && !s.monster);
+                const preferredTypes = ['GUARD', 'INCOME', 'HEAL', 'TRAINING', 'TRAP'];
+                const types = preferredTypes.filter(type => player.gold >= this.facilityConfigs[type].cost);
+                if (emptySlot && types.length > 0) {
+                    this.selectedSlot = emptySlot;
+                    this.buildFacility(types[Math.floor(Math.random() * types.length)]);
+                } else {
+                    this.endTurn();
                 }
             },
 
@@ -3007,6 +3033,14 @@
                     return;
                 }
 
+                this.performUpgradeFacility(player, slot);
+                document.getElementById('build-menu').style.display = 'none';
+                this.updateUI();
+                this.finishAction(true);
+            },
+
+            performUpgradeFacility(player, slot) {
+                const cost = this.getUpgradeCost(slot);
                 player.gold -= cost;
                 slot.level += 1;
                 const defenseGain = this.getUpgradeDefenseGain(slot);
@@ -3015,9 +3049,6 @@
                 this.updateFacilityVisual(slot);
                 this.createFloatingText(`Lv.${slot.level}`, slot.mesh.position, "#2ed573");
                 this.log(`花费 ${cost}G 将 ${this.getFacilityName(slot)} 升到 Lv.${slot.level}，防御 +${defenseGain}。`);
-                document.getElementById('build-menu').style.display = 'none';
-                this.updateUI();
-                this.finishAction(true);
             },
 
             recruitGuardForSelectedFacility() {
@@ -3044,6 +3075,14 @@
                     return;
                 }
 
+                this.performRecruitGuard(player, slot);
+                document.getElementById('build-menu').style.display = 'none';
+                this.updateUI();
+                this.finishAction(true);
+            },
+
+            performRecruitGuard(player, slot) {
+                const cost = this.getGuardRecruitCost(slot);
                 player.gold -= cost;
                 const guard = this.createGuard(slot);
                 slot.guards.push(guard);
@@ -3051,9 +3090,6 @@
                 this.updateGuardMarkers(slot);
                 this.createFloatingText("+守军", slot.mesh.position, "#1e90ff");
                 this.log(`花费 ${cost}G 为 ${this.getFacilityName(slot)} 招募了 ${guard.name}。`);
-                document.getElementById('build-menu').style.display = 'none';
-                this.updateUI();
-                this.finishAction(true);
             },
 
             demolishSelectedFacility() {
