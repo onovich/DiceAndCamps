@@ -175,6 +175,12 @@
             font-weight: 900;
             margin-bottom: 6px;
         }
+        .battle-status-sub {
+            margin-top: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            opacity: 0.8;
+        }
         .battle-status-bar {
             height: 10px;
             overflow: hidden;
@@ -1464,15 +1470,20 @@
                 const freeGuardHp = slot.type === 'GUARD' && slot.guards.length === 0 ? 24 + slot.level * 8 : 0;
                 const guardHp = slot.guards.reduce((sum, guard) => sum + guard.hp, 0) + freeGuardHp;
                 const guardAtk = slot.guards.reduce((sum, guard) => sum + guard.atk, 0);
-                const atk = hasGuard ? 6 + slot.level * 2 + guardAtk : 3 + slot.level;
+                const wallAtk = 3 + slot.level + Math.ceil(guardAtk * 0.45);
+                const guardPhaseAtk = hasGuard ? 5 + slot.level * 2 + guardAtk : wallAtk;
+                const atk = hasGuard ? wallAtk : guardPhaseAtk;
                 const hp = wallHp + guardHp;
                 return {
                     hasGuard,
                     wallHp,
                     guardHp,
                     guardAtk,
+                    wallAtk,
+                    guardPhaseAtk,
                     atk,
                     hp,
+                    battlePlan: hasGuard ? '守军躲在城墙后' : '只有城墙',
                     label: hasGuard ? '守军+城墙' : '墙壁战'
                 };
             },
@@ -1711,10 +1722,13 @@
                     ${this.infoRow('防御', slot.defense)}
                     ${this.infoRow('守军', guardText)}
                     ${this.infoRow('驻军编成', this.getGuardSummary(slot, ' | '))}
-                    ${this.infoRow('防守类型', preview.label)}
+                    ${this.infoRow('防守类型', preview.battlePlan || preview.label)}
                     ${this.infoRow('城墙HP', preview.wallHp)}
+                    ${this.infoRow('守军HP', preview.guardHp)}
+                    ${this.infoRow('城墙阶段ATK', preview.wallAtk)}
+                    ${this.infoRow('守军阶段ATK', preview.guardPhaseAtk)}
                     ${this.infoRow('挑战HP', preview.hp)}
-                    ${this.infoRow('预估ATK', preview.atk)}
+                    ${this.infoRow('开场ATK', preview.atk)}
                 `;
             },
 
@@ -2462,7 +2476,7 @@
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.label}，挑战HP ${preview.hp}，ATK ${preview.atk}。胜利摧毁建筑且不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。城墙 HP ${preview.wallHp} / ATK ${preview.wallAtk}，守军 HP ${preview.guardHp} / ATK ${preview.guardPhaseAtk}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
                 
@@ -2608,13 +2622,107 @@
             createBuildingBattleEnemy(slot) {
                 const preview = this.getBuildingBattlePreview(slot);
                 return {
-                    name: preview.hasGuard ? `${this.getFacilityName(slot)}守军与城墙` : `${this.getFacilityName(slot)}城墙`,
-                    hp: preview.hp,
-                    maxHp: preview.hp,
+                    name: preview.hasGuard ? `${this.getFacilityName(slot)}城墙` : `${this.getFacilityName(slot)}城墙`,
+                    hp: preview.wallHp,
+                    maxHp: preview.wallHp,
                     atk: preview.atk,
+                    facilityName: this.getFacilityName(slot),
+                    wallHp: preview.wallHp,
+                    wallMaxHp: preview.wallHp,
+                    wallAtk: preview.wallAtk,
+                    guardHp: preview.guardHp,
+                    guardMaxHp: preview.guardHp,
+                    guardAtk: preview.guardPhaseAtk,
+                    hasGuard: preview.hasGuard,
+                    phase: 'wall',
                     slot,
                     meshGroup: slot.facilityMesh || slot.mesh
                 };
+            },
+
+            createEnemyBattleState(enemy, kind) {
+                if (kind === 'facility' && enemy.wallHp) {
+                    return {
+                        name: `${enemy.facilityName}城墙`,
+                        hp: enemy.wallHp,
+                        maxHp: enemy.wallMaxHp || enemy.wallHp,
+                        atk: enemy.atk || enemy.wallAtk || 4,
+                        phase: 'wall',
+                        phaseLabel: enemy.hasGuard ? '先破城墙，再逼出守军' : '摧毁城墙即可获胜',
+                        facilityName: enemy.facilityName,
+                        wallHp: enemy.wallHp,
+                        wallMaxHp: enemy.wallMaxHp || enemy.wallHp,
+                        wallAtk: enemy.wallAtk || enemy.atk || 4,
+                        guardHp: enemy.guardHp || 0,
+                        guardMaxHp: enemy.guardMaxHp || enemy.guardHp || 0,
+                        guardAtk: enemy.guardAtk || enemy.atk || 4,
+                        hasGuard: !!enemy.hasGuard
+                    };
+                }
+
+                return {
+                    name: enemy.name,
+                    hp: enemy.hp,
+                    maxHp: enemy.maxHp || enemy.hp,
+                    atk: enemy.atk || 4,
+                    phase: 'single',
+                    phaseLabel: kind === 'monster' ? '击败野怪即可清空地块' : '常规战斗'
+                };
+            },
+
+            applyDamageToEnemyState(enemyState, damage) {
+                const outcome = {
+                    defeated: false,
+                    stageBroken: false,
+                    stageShifted: false
+                };
+                if (damage <= 0) return outcome;
+
+                enemyState.hp -= damage;
+                if (enemyState.phase === 'wall') {
+                    enemyState.wallHp = Math.max(0, enemyState.hp);
+                    if (enemyState.hp <= 0) {
+                        outcome.stageBroken = true;
+                        if (enemyState.hasGuard && enemyState.guardHp > 0) {
+                            const overflow = Math.max(0, -enemyState.hp);
+                            enemyState.phase = 'guard';
+                            enemyState.name = `${enemyState.facilityName}守军`;
+                            enemyState.maxHp = enemyState.guardMaxHp;
+                            enemyState.hp = Math.max(0, enemyState.guardHp - overflow);
+                            enemyState.guardHp = enemyState.hp;
+                            enemyState.atk = enemyState.guardAtk;
+                            enemyState.phaseLabel = '守军离开城墙掩体，开始正面作战';
+                            outcome.stageShifted = enemyState.hp > 0;
+                            if (enemyState.hp <= 0) outcome.defeated = true;
+                            return outcome;
+                        }
+                        outcome.defeated = true;
+                        enemyState.hp = 0;
+                        return outcome;
+                    }
+                    return outcome;
+                }
+
+                if (enemyState.phase === 'guard') {
+                    enemyState.guardHp = Math.max(0, enemyState.hp);
+                }
+                if (enemyState.hp <= 0) {
+                    enemyState.hp = 0;
+                    outcome.defeated = true;
+                }
+                return outcome;
+            },
+
+            async handleFacilityBattleStageShift(enemyState, enemyTarget) {
+                if (enemyState.phase !== 'guard') return;
+                this.log(`${enemyState.facilityName} 的城墙被攻破，守军被迫出阵！`);
+                this.createFloatingText('城墙破碎!', enemyTarget.position || enemyTarget, '#ff9f43');
+                this.showHitEffect(enemyTarget, 0xff9f43);
+                await this.focusBattleCamera(enemyTarget, 1.84, 240);
+                await this.wait(220);
+                this.createFloatingText('守军出阵!', enemyTarget.position || enemyTarget, '#1e90ff');
+                await this.focusBattleCamera(enemyTarget, 1.7, 220);
+                await this.wait(180);
             },
 
             captureBattleSnapshot(attacker, enemyMesh) {
@@ -2994,6 +3102,7 @@
                     <div class="battle-status-card enemy">
                         <div class="battle-status-name"><span>${this.escapeHtml(enemyState.name)}</span><span>${enemyHp}/${enemyState.maxHp}</span></div>
                         <div class="battle-status-bar"><div class="battle-status-fill" style="width:${enemyPct}%"></div></div>
+                        <div class="battle-status-sub">${this.escapeHtml(enemyState.phaseLabel || '')}</div>
                     </div>
                 `;
                 status.style.display = 'flex';
@@ -3169,12 +3278,7 @@
                 this.stopSlotHighlightOnly();
                 document.getElementById('btn-end').style.display = 'none';
 
-                const enemyState = {
-                    name: enemy.name,
-                    hp: enemy.hp,
-                    maxHp: enemy.maxHp || enemy.hp,
-                    atk: enemy.atk || 4
-                };
+                const enemyState = this.createEnemyBattleState(enemy, kind);
                 this.log(`${attacker.name} 向 ${enemyState.name} 发起战斗！`);
                 this.updateBattleStatus(attacker, enemyState, 0);
 
@@ -3253,13 +3357,17 @@
                     }
 
                     if (playerDmg > 0) {
-                        enemyState.hp -= playerDmg;
+                        const strikeOutcome = this.applyDamageToEnemyState(enemyState, playerDmg);
                         this.updateBattleStatus(attacker, enemyState, round);
                         this.createFloatingText(`-${playerDmg}`, enemyPos, "#ff4757");
                         this.bumpCombatant(attacker.meshGroup, enemyPos);
                         this.showHitEffect(enemyMesh || enemyPos, 0xff6b81);
                         await this.focusBattleCamera(enemyMesh || enemyPos, 1.72, 220);
                         await this.wait(300);
+                        if (strikeOutcome.stageShifted) {
+                            this.updateBattleStatus(attacker, enemyState, round);
+                            await this.handleFacilityBattleStageShift(enemyState, enemyMesh || enemyPos);
+                        }
                     }
 
                     if (enemyState.hp <= 0 || fled) break;
