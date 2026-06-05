@@ -55,6 +55,79 @@
             display: flex;
             gap: 20px;
         }
+        #deck-menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+            width: min(860px, calc(100vw - 40px));
+            max-height: min(78vh, 760px);
+            overflow-y: auto;
+        }
+        .deck-sections {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .deck-section {
+            border: 3px solid #111;
+            border-radius: 8px;
+            background: rgba(255, 248, 232, 0.92);
+            padding: 12px;
+            box-shadow: 4px 4px 0 rgba(0,0,0,0.2);
+        }
+        .deck-section h4 {
+            margin: 0 0 8px 0;
+            font-size: 18px;
+            color: #111;
+        }
+        .deck-summary {
+            font-size: 13px;
+            line-height: 1.45;
+            color: #333;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+        .deck-card-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .deck-card {
+            width: 160px;
+            border: 3px solid #111;
+            border-radius: 8px;
+            background: #fff;
+            padding: 10px;
+            box-shadow: 0 4px 0 #111;
+        }
+        .deck-card strong,
+        .deck-card em,
+        .deck-card span {
+            display: block;
+        }
+        .deck-card strong {
+            margin-bottom: 4px;
+            color: #111;
+        }
+        .deck-card em {
+            font-size: 12px;
+            color: #57606f;
+            font-style: normal;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+        .deck-card span {
+            font-size: 12px;
+            line-height: 1.4;
+            color: #333;
+        }
+        .deck-empty {
+            font-size: 13px;
+            font-weight: 700;
+            color: #57606f;
+        }
 
         .btn {
             background: #ff7f50;
@@ -588,6 +661,7 @@
 
         <div id="action-panel">
             <button id="btn-roll" class="btn">掷骰子</button>
+            <button id="btn-deck" class="btn" style="font-size:18px; padding: 12px 24px; background:#70a1ff; box-shadow: 0 6px 0 #3867d6;">牌库</button>
             <button id="btn-end" class="btn" style="display:none; background:#7bed9f; box-shadow: 0 6px 0 #2ed573;">结束回合</button>
         </div>
 
@@ -628,6 +702,14 @@
                 <button class="build-btn training" onclick="Game.resolveWizardTrade('gold')">献上 60G</button>
                 <button class="build-btn heal" onclick="Game.resolveWizardTrade('hp')">献上 12HP</button>
                 <button class="build-btn cancel" onclick="Game.resolveWizardTrade('skip')">离开</button>
+            </div>
+        </div>
+
+        <div id="deck-menu" class="panel">
+            <h3 style="margin-top:0;">牌库总览</h3>
+            <div id="deck-sections" class="deck-sections"></div>
+            <div class="build-options" style="margin-top:12px; justify-content:center;">
+                <button class="build-btn cancel" onclick="Game.closeDeckMenu()">关闭</button>
             </div>
         </div>
 
@@ -1822,6 +1904,74 @@
                 return player.preparedBattleSummary.join(' / ');
             },
 
+            getCardCountEntries(cardIds = []) {
+                const counts = new Map();
+                cardIds.forEach(cardId => {
+                    counts.set(cardId, (counts.get(cardId) || 0) + 1);
+                });
+                return Array.from(counts.entries());
+            },
+
+            renderDeckCardList(cardIds = [], emptyLabel = '暂无卡牌') {
+                const entries = this.getCardCountEntries(cardIds);
+                if (entries.length === 0) {
+                    return `<div class="deck-empty">${this.escapeHtml(emptyLabel)}</div>`;
+                }
+                return `<div class="deck-card-list">${entries.map(([cardId, count]) => {
+                    const card = this.cardLibrary[cardId];
+                    if (!card) return '';
+                    return `
+                        <div class="deck-card">
+                            <strong>${this.escapeHtml(card.name)} x${count}</strong>
+                            <em>${this.escapeHtml(this.getCardKindLabel(card.kind))}</em>
+                            <span>${this.escapeHtml(card.text)}</span>
+                        </div>
+                    `;
+                }).join('')}</div>`;
+            },
+
+            renderDeckMenu(player) {
+                const deckSections = document.getElementById('deck-sections');
+                const currentSupport = this.getBattleSupportPackage(player);
+                deckSections.innerHTML = `
+                    <div class="deck-section">
+                        <h4>当前牌库</h4>
+                        <div class="deck-summary">共 ${player.deck.length} 张。这里是会被长期保留下来的牌。</div>
+                        ${this.renderDeckCardList(player.deck, '当前牌库为空')}
+                    </div>
+                    <div class="deck-section">
+                        <h4>下一战筹备</h4>
+                        <div class="deck-summary">${this.escapeHtml(this.getPreparedBattleSummaryText(player))}</div>
+                        ${this.renderDeckCardList(player.preparedBattleCards || [], '还没有为下一场战斗准备战术牌')}
+                    </div>
+                    <div class="deck-section">
+                        <h4>当前路口支援预览</h4>
+                        <div class="deck-summary">${this.escapeHtml(this.getBattleSupportSummaryText(player))}</div>
+                        ${this.renderDeckCardList(currentSupport.cardIds || [], '当前没有同路块建筑或守军支援')}
+                    </div>
+                `;
+            },
+
+            openDeckMenu() {
+                const player = this.players[this.currentPlayerIndex];
+                if (!player?.isPlayer) return;
+                this.renderDeckMenu(player);
+                document.getElementById('deck-menu').style.display = 'block';
+            },
+
+            closeDeckMenu() {
+                document.getElementById('deck-menu').style.display = 'none';
+            },
+
+            toggleDeckMenu() {
+                const menu = document.getElementById('deck-menu');
+                if (menu.style.display === 'block') {
+                    this.closeDeckMenu();
+                } else {
+                    this.openDeckMenu();
+                }
+            },
+
             resetGuardTransferMenu() {
                 this.guardTransferSource = null;
                 const transferOptions = document.getElementById('guard-transfer-options');
@@ -2291,6 +2441,7 @@
             initEvents() {
                 const canvas = document.getElementById('game-canvas');
                 document.getElementById('btn-roll').addEventListener('click', () => this.rollDice());
+                document.getElementById('btn-deck').addEventListener('click', () => this.toggleDeckMenu());
                 document.getElementById('btn-end').addEventListener('click', () => this.endTurn());
 
                 // 触控/鼠标事件用于拖拽相机和点击选择
@@ -2370,11 +2521,20 @@
                 document.getElementById('char-exp-bar').style.width = `${(p.exp/100)*100}%`;
 
                 document.getElementById('btn-roll').style.display = (p.isPlayer && this.state === TurnState.IDLE) ? 'block' : 'none';
+                document.getElementById('btn-deck').style.display = (p.isPlayer && this.state !== TurnState.BATTLE) ? 'block' : 'none';
+                if (document.getElementById('deck-menu').style.display === 'block') {
+                    if (p.isPlayer) {
+                        this.renderDeckMenu(p);
+                    } else {
+                        this.closeDeckMenu();
+                    }
+                }
             },
 
             // 掷骰子动画
             rollDice() {
                 if (this.state !== TurnState.IDLE) return;
+                this.closeDeckMenu();
                 this.transitionTo(TurnState.DICE);
                 this.setDicePhase(DicePhase.LAUNCH);
                 document.getElementById('btn-roll').style.display = 'none';
@@ -2699,14 +2859,18 @@
 
             async triggerWizardNode(player) {
                 this.transitionTo(TurnState.WIZARD_EVENT);
+                this.closeDeckMenu();
                 this.log(`${player.name} 来到岔路尽头的巫师摊位。`);
                 if (!player.isPlayer) {
                     if (player.deck.length >= 8 && player.gold >= this.wizardRemoveCost && Math.random() < 0.45) {
-                        player.gold -= this.wizardRemoveCost;
                         const removeIndex = player.deck.findIndex(cardId => cardId === 'STRIKE' || cardId === 'GUARD_UP');
                         if (removeIndex >= 0) {
+                            player.gold -= this.wizardRemoveCost;
                             const removed = player.deck.splice(removeIndex, 1)[0];
                             this.log(`${player.name} 在巫师摊位净化掉了 ${this.cardLibrary[removed]?.name || removed}。`);
+                        } else if (player.gold >= 60) {
+                            player.gold -= 60;
+                            this.grantRandomCard(player);
                         }
                     } else if (player.gold >= 60) {
                         player.gold -= 60;
@@ -4870,6 +5034,7 @@
                 this.hideBattleStatus();
                 this.restoreDiceOccluders();
                 this.resetGuardTransferMenu();
+                this.closeDeckMenu();
                 this.setBattlePhase(BattlePhase.NONE);
                 this.battleContext = null;
                 this.battleSupportCards = [];
