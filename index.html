@@ -1797,17 +1797,134 @@
                 return this.guardArchetypes[(slot.guards.length + slot.level - 1) % this.guardArchetypes.length];
             },
 
+            getGuardTrainingProfile(facilityType = 'EMPTY', guardKey = null) {
+                const profiles = {
+                    TRAP: {
+                        label: '伏袭训练',
+                        shortLabel: '伏',
+                        description: '更擅长埋伏压制，斥候更容易扰乱敌人的战前筹备。',
+                        hpBonus: 0,
+                        atkBonus: 1,
+                        dodgeBonus: guardKey === 'SCOUT' ? 0.04 : 0.01,
+                        pressureDamageBonus: guardKey === 'SCOUT' ? 3 : 1,
+                        phaseAtkBonus: 1,
+                        disruptPrepared: guardKey === 'SCOUT'
+                    },
+                    GUARD: {
+                        label: '城门值守',
+                        shortLabel: '守',
+                        description: '更擅长守线和固守，路口施压时也更会加固防线。',
+                        hpBonus: 2,
+                        atkBonus: 0,
+                        wallArmorBonus: 1,
+                        guardArmorBonus: 1,
+                        defenseBoostBonus: 2,
+                        supportDefenseBonus: 2
+                    },
+                    INCOME: {
+                        label: '补给护送',
+                        shortLabel: '粮',
+                        description: '更会筹粮和封锁补给线，过路时也能反哺友军。',
+                        hpBonus: 2,
+                        atkBonus: 0,
+                        pressureGoldBonus: 5,
+                        supportGoldBonus: 8
+                    },
+                    HEAL: {
+                        label: '战地包扎',
+                        shortLabel: '疗',
+                        description: '更擅长稳住伤兵和修补阵线，路过时能额外整补。',
+                        hpBonus: 4,
+                        atkBonus: 0,
+                        supportHealBonus: 5,
+                        supportDefenseBonus: 1
+                    },
+                    TRAINING: {
+                        label: '突击操练',
+                        shortLabel: '练',
+                        description: '更凶猛的冲阵训练，会强化守军阶段的进攻与反击。',
+                        hpBonus: 1,
+                        atkBonus: 1,
+                        phaseAtkBonus: 2,
+                        counterBonus: 2
+                    },
+                    BARRACKS: {
+                        label: '轮训营规',
+                        shortLabel: '营',
+                        description: '更耐打也更稳定，适合被调往别处长期值守。',
+                        hpBonus: 5,
+                        atkBonus: 0,
+                        guardArmorBonus: 1,
+                        phaseAtkBonus: 1,
+                        supportHealBonus: 3
+                    },
+                    COMMAND: {
+                        label: '战旗号令',
+                        shortLabel: '令',
+                        description: '更会整队前压，也会在过路时带来更好的整补与加固。',
+                        hpBonus: 0,
+                        atkBonus: 1,
+                        phaseAtkBonus: 3,
+                        supportHealBonus: 2,
+                        supportDefenseBonus: 1
+                    },
+                    WORKSHOP: {
+                        label: '工事加固',
+                        shortLabel: '工',
+                        description: '熟悉工事与攻城器械，能显著强化墙体和据点防守。',
+                        hpBonus: 3,
+                        atkBonus: 0,
+                        wallHpBonus: 10,
+                        wallArmorBonus: 2,
+                        supportDefenseBonus: 1,
+                        phaseAtkBonus: 1
+                    }
+                };
+                const profile = profiles[facilityType] || {
+                    label: '通用操练',
+                    shortLabel: '常',
+                    description: '基础守军训练。',
+                    hpBonus: 0,
+                    atkBonus: 0
+                };
+                return {
+                    sourceType: facilityType,
+                    label: profile.label,
+                    shortLabel: profile.shortLabel,
+                    description: profile.description,
+                    hpBonus: profile.hpBonus || 0,
+                    atkBonus: profile.atkBonus || 0,
+                    wallHpBonus: profile.wallHpBonus || 0,
+                    wallArmorBonus: profile.wallArmorBonus || 0,
+                    guardArmorBonus: profile.guardArmorBonus || 0,
+                    dodgeBonus: profile.dodgeBonus || 0,
+                    counterBonus: profile.counterBonus || 0,
+                    phaseAtkBonus: profile.phaseAtkBonus || 0,
+                    pressureGoldBonus: profile.pressureGoldBonus || 0,
+                    pressureDamageBonus: profile.pressureDamageBonus || 0,
+                    defenseBoostBonus: profile.defenseBoostBonus || 0,
+                    supportHealBonus: profile.supportHealBonus || 0,
+                    supportGoldBonus: profile.supportGoldBonus || 0,
+                    supportDefenseBonus: profile.supportDefenseBonus || 0,
+                    disruptPrepared: !!profile.disruptPrepared
+                };
+            },
+
             createGuard(slot, preferredKey = null) {
                 const archetype = this.getGuardArchetype(preferredKey, slot);
                 const index = slot.guards.length + 1;
+                const training = this.getGuardTrainingProfile(slot?.type, archetype.key);
+                const maxHp = archetype.maxHp + slot.level * 5 + training.hpBonus;
+                const atk = archetype.atk + slot.level * 2 + training.atkBonus;
                 return {
                     key: archetype.key,
                     roleName: archetype.name,
                     name: `${archetype.name}${index}`,
-                    maxHp: archetype.maxHp + slot.level * 5,
-                    hp: archetype.maxHp + slot.level * 5,
-                    atk: archetype.atk + slot.level * 2,
+                    maxHp,
+                    hp: maxHp,
+                    atk,
                     color: archetype.color,
+                    training,
                     veterancy: 0,
                     exp: 0
                 };
@@ -1887,10 +2004,68 @@
                 return slot.guards.reduce((sum, guard) => sum + guard.hp + guard.atk * 3, 0);
             },
 
+            getGuardTrainingMetrics(slotOrGuards) {
+                const guards = Array.isArray(slotOrGuards)
+                    ? slotOrGuards
+                    : (slotOrGuards?.guards || []);
+                const metrics = {
+                    wallHpBonus: 0,
+                    wallArmorBonus: 0,
+                    guardArmorBonus: 0,
+                    dodgeBonus: 0,
+                    counterBonus: 0,
+                    phaseAtkBonus: 0,
+                    pressureGoldBonus: 0,
+                    pressureDamageBonus: 0,
+                    defenseBoostBonus: 0,
+                    supportHealBonus: 0,
+                    supportGoldBonus: 0,
+                    supportDefenseBonus: 0,
+                    disruptSources: 0
+                };
+
+                guards.forEach(guard => {
+                    const training = guard.training || this.getGuardTrainingProfile(guard.sourceType || 'EMPTY', guard.key);
+                    metrics.wallHpBonus += training.wallHpBonus || 0;
+                    metrics.wallArmorBonus += training.wallArmorBonus || 0;
+                    metrics.guardArmorBonus += training.guardArmorBonus || 0;
+                    metrics.dodgeBonus += training.dodgeBonus || 0;
+                    metrics.counterBonus += training.counterBonus || 0;
+                    metrics.phaseAtkBonus += training.phaseAtkBonus || 0;
+                    metrics.pressureGoldBonus += training.pressureGoldBonus || 0;
+                    metrics.pressureDamageBonus += training.pressureDamageBonus || 0;
+                    metrics.defenseBoostBonus += training.defenseBoostBonus || 0;
+                    metrics.supportHealBonus += training.supportHealBonus || 0;
+                    metrics.supportGoldBonus += training.supportGoldBonus || 0;
+                    metrics.supportDefenseBonus += training.supportDefenseBonus || 0;
+                    if (training.disruptPrepared) metrics.disruptSources += 1;
+                });
+
+                return metrics;
+            },
+
+            getGuardTrainingSummary(slotOrGuards) {
+                const guards = Array.isArray(slotOrGuards)
+                    ? slotOrGuards
+                    : (slotOrGuards?.guards || []);
+                if (guards.length === 0) return '暂无驻军训练';
+                const counts = new Map();
+                guards.forEach(guard => {
+                    const training = guard.training || this.getGuardTrainingProfile(guard.sourceType || 'EMPTY', guard.key);
+                    counts.set(training.label, (counts.get(training.label) || 0) + 1);
+                });
+                return Array.from(counts.entries())
+                    .map(([label, count]) => `${label}x${count}`)
+                    .join(' / ');
+            },
+
             getGuardSummary(slot, joiner = ' / ') {
                 if (!slot.guards || slot.guards.length === 0) return '无守军';
                 return slot.guards
-                    .map(guard => `${guard.name}[${this.getGuardVeterancyLabel(guard)}] HP${guard.hp}/${guard.maxHp} ATK${guard.atk} EXP${guard.exp ?? 0}`)
+                    .map(guard => {
+                        const training = guard.training || this.getGuardTrainingProfile(guard.sourceType || 'EMPTY', guard.key);
+                        return `${guard.name}{${training.shortLabel}}[${this.getGuardVeterancyLabel(guard)}] HP${guard.hp}/${guard.maxHp} ATK${guard.atk} EXP${guard.exp ?? 0}`;
+                    })
                     .join(joiner);
             },
 
@@ -2059,8 +2234,9 @@
 
             getGuardRecruitMenuCopy(archetype, slot) {
                 const levelBoost = slot?.level || 1;
-                const baseHp = archetype.maxHp + levelBoost * 5;
-                const baseAtk = archetype.atk + levelBoost * 2;
+                const training = this.getGuardTrainingProfile(slot?.type, archetype.key);
+                const baseHp = archetype.maxHp + levelBoost * 5 + training.hpBonus;
+                const baseAtk = archetype.atk + levelBoost * 2 + training.atkBonus;
                 const traitText = {
                     SHIELD: '顶在最前面，显著提高城墙与守军的减伤。',
                     SPEAR: '反击更狠，容易打出破防式的穿刺压力。',
@@ -2068,7 +2244,7 @@
                 };
                 return {
                     title: `${archetype.name} (${baseHp}HP / ${baseAtk}ATK)`,
-                    text: traitText[archetype.key] || '可部署守军。'
+                    text: `${traitText[archetype.key] || '可部署守军。'} ${training.label}：${training.description}`
                 };
             },
 
@@ -2298,6 +2474,7 @@
                 const hasGuard = slot.guards.length > 0;
                 const roleCounts = this.getGuardRoleCounts(slot);
                 const veterancy = this.getGuardVeterancyMetrics(slot);
+                const training = this.getGuardTrainingMetrics(slot);
                 const wallHp = Math.max(28, slot.defense * 2);
                 const emptyGuardPostWallBonus = slot.type === 'GUARD' && !hasGuard ? 10 + slot.level * 6 : 0;
                 const emptyGuardPostArmorBonus = slot.type === 'GUARD' && !hasGuard ? 2 + slot.level : 0;
@@ -2309,14 +2486,14 @@
                 const veteranGuardArmor = Math.floor(veterancy.byRole.SHIELD / 2) + Math.floor(veterancy.highestVeterancy / 2);
                 const veteranDodge = veterancy.byRole.SCOUT * 0.02 + veterancy.rankCounts[3] * 0.01;
                 const veteranCounter = veterancy.byRole.SPEAR;
-                const wallArmor = roleCounts.SHIELD * 3 + (slot.type === 'WORKSHOP' ? 2 + slot.level : 0) + fortressArmorBonus + emptyGuardPostArmorBonus + veteranWallArmor;
-                const guardArmor = roleCounts.SHIELD * 2 + (slot.type === 'COMMAND' ? 1 + Math.floor(slot.level / 2) : 0) + veteranGuardArmor;
-                const dodgeChance = Math.min(0.5, roleCounts.SCOUT * 0.08 + veteranDodge);
-                const counterBonus = roleCounts.SPEAR * 2 + veteranCounter;
-                const fortifiedWallHp = wallHp + roleCounts.SHIELD * 10 + fortressWallBonus + emptyGuardPostWallBonus + veterancy.byRole.SHIELD * 3 + veterancy.highestVeterancy * 2;
+                const wallArmor = roleCounts.SHIELD * 3 + (slot.type === 'WORKSHOP' ? 2 + slot.level : 0) + fortressArmorBonus + emptyGuardPostArmorBonus + veteranWallArmor + training.wallArmorBonus;
+                const guardArmor = roleCounts.SHIELD * 2 + (slot.type === 'COMMAND' ? 1 + Math.floor(slot.level / 2) : 0) + veteranGuardArmor + training.guardArmorBonus;
+                const dodgeChance = Math.min(0.5, roleCounts.SCOUT * 0.08 + veteranDodge + training.dodgeBonus);
+                const counterBonus = roleCounts.SPEAR * 2 + veteranCounter + training.counterBonus;
+                const fortifiedWallHp = wallHp + roleCounts.SHIELD * 10 + fortressWallBonus + emptyGuardPostWallBonus + veterancy.byRole.SHIELD * 3 + veterancy.highestVeterancy * 2 + training.wallHpBonus;
                 const wallAtk = 3 + slot.level + Math.ceil(guardAtk * 0.45) + roleCounts.SPEAR + (slot.type === 'FORTRESS' ? 2 + slot.level : 0) + (slot.type === 'GUARD' && !hasGuard ? 1 + slot.level : 0) + Math.floor(veterancy.totalVeterancy / 2);
                 const commandBonus = slot.type === 'COMMAND' ? 2 + roleCounts.total : 0;
-                const guardPhaseAtk = hasGuard ? 5 + slot.level * 2 + guardAtk + counterBonus + roleCounts.SCOUT + commandBonus + Math.floor(veterancy.totalVeterancy / 2) : wallAtk;
+                const guardPhaseAtk = hasGuard ? 5 + slot.level * 2 + guardAtk + counterBonus + roleCounts.SCOUT + commandBonus + Math.floor(veterancy.totalVeterancy / 2) + training.phaseAtkBonus : wallAtk;
                 const atk = hasGuard ? wallAtk : guardPhaseAtk;
                 const hp = fortifiedWallHp + guardHp;
                 const battlePlanDetails = this.getFacilityBattlePlan(slot, hasGuard);
@@ -2339,6 +2516,7 @@
                     dodgeChance,
                     counterBonus,
                     veterancy,
+                    training,
                     roleCounts,
                     atk,
                     hp,
@@ -2399,16 +2577,18 @@
             getGuardPressurePayload(slot) {
                 const roleCounts = this.getGuardRoleCounts(slot);
                 const veterancy = this.getGuardVeterancyMetrics(slot);
+                const training = this.getGuardTrainingMetrics(slot);
                 const veteranDefenseBoost = veterancy.byRole.SHIELD + Math.floor(veterancy.totalVeterancy / 2);
                 const veteranGoldLoss = veterancy.byRole.SPEAR * 4 + veterancy.veteranCount * 2;
                 const veteranDamage = veterancy.byRole.SCOUT + veterancy.highestVeterancy * 2;
                 return {
-                    goldLoss: 8 + slot.level * 4 + roleCounts.SPEAR * 6 + roleCounts.total * 2 + veteranGoldLoss + (slot.type === 'COMMAND' ? 6 + roleCounts.total * 3 : 0),
-                    damage: roleCounts.SCOUT * (2 + Math.ceil(slot.level / 2)) + veteranDamage + (slot.type === 'GUARD' ? 3 + slot.level : 0) + (slot.type === 'COMMAND' ? 2 + slot.level : 0),
-                    defenseBoost: roleCounts.SHIELD * 2 + veteranDefenseBoost + (slot.type === 'GUARD' ? slot.level : 0),
-                    disruptPrepared: veterancy.byRole.SCOUT >= 3 || (veterancy.highestVeterancy >= 3 && veterancy.veteranCount >= 2),
+                    goldLoss: 8 + slot.level * 4 + roleCounts.SPEAR * 6 + roleCounts.total * 2 + veteranGoldLoss + training.pressureGoldBonus + (slot.type === 'COMMAND' ? 6 + roleCounts.total * 3 : 0),
+                    damage: roleCounts.SCOUT * (2 + Math.ceil(slot.level / 2)) + veteranDamage + training.pressureDamageBonus + (slot.type === 'GUARD' ? 3 + slot.level : 0) + (slot.type === 'COMMAND' ? 2 + slot.level : 0),
+                    defenseBoost: roleCounts.SHIELD * 2 + veteranDefenseBoost + training.defenseBoostBonus + (slot.type === 'GUARD' ? slot.level : 0),
+                    disruptPrepared: training.disruptSources > 0 || veterancy.byRole.SCOUT >= 3 || (veterancy.highestVeterancy >= 3 && veterancy.veteranCount >= 2),
                     roleCounts,
-                    veterancy
+                    veterancy,
+                    training
                 };
             },
 
@@ -2430,30 +2610,33 @@
 
             getOwnedVeteranSupportPayload(slot) {
                 const veterancy = this.getGuardVeterancyMetrics(slot);
+                const training = this.getGuardTrainingMetrics(slot);
                 const veteranSupport = this.getGuardVeterancyPackage(slot, `老兵值守:${this.getFacilityName(slot)}`);
-                if (!slot?.guards?.length || veterancy.veteranCount === 0) {
+                if (!slot?.guards?.length) {
                     return {
                         defenseGain: 0,
                         heal: 0,
                         goldGain: 0,
                         supportCardId: veteranSupport.cardIds[0] || null,
-                        veterancy
+                        veterancy,
+                        training
                     };
                 }
 
                 return {
-                    defenseGain: veterancy.byRole.SHIELD + Math.floor(veterancy.totalVeterancy / 3),
-                    heal: veterancy.veteranCount + veterancy.highestVeterancy * 2,
-                    goldGain: veterancy.byRole.SCOUT * 4 + (slot.type === 'INCOME' ? 4 + slot.level * 2 : 0),
+                    defenseGain: veterancy.byRole.SHIELD + Math.floor(veterancy.totalVeterancy / 3) + training.supportDefenseBonus,
+                    heal: veterancy.veteranCount + veterancy.highestVeterancy * 2 + training.supportHealBonus,
+                    goldGain: veterancy.byRole.SCOUT * 4 + (slot.type === 'INCOME' ? 4 + slot.level * 2 : 0) + training.supportGoldBonus,
                     supportCardId: veteranSupport.cardIds[0] || null,
-                    veterancy
+                    veterancy,
+                    training
                 };
             },
 
             getOwnedVeteranSupportPreviewText(slot) {
                 const payload = this.getOwnedVeteranSupportPayload(slot);
-                if (!slot?.guards?.length || payload.veterancy.veteranCount === 0) {
-                    return '暂无老兵过路增援';
+                if (!slot?.guards?.length) {
+                    return '暂无驻军过路增援';
                 }
                 const parts = [];
                 if (payload.defenseGain > 0) parts.push(`加固 +${payload.defenseGain} 防御`);
@@ -2747,6 +2930,7 @@
                 const capacity = this.getGuardCapacity(slot);
                 const preview = this.getBuildingBattlePreview(slot);
                 const doctrineText = this.getGuardDoctrineSummaryText(slot, '驻军编成');
+                const trainingText = this.getGuardTrainingSummary(slot);
                 const veterancySupportText = this.getGuardVeterancySupportText(slot, '老兵支援');
                 const spoilsText = this.getFacilitySpoilsPreviewText(slot);
                 const passByLabel = ownedByPlayer ? '过路增援' : '路口施压';
@@ -2762,6 +2946,7 @@
                     ${this.infoRow('防御', slot.defense)}
                     ${this.infoRow('守军', guardText)}
                     ${this.infoRow('驻军编成', this.getGuardSummary(slot, ' | '))}
+                    ${this.infoRow('驻军训练', trainingText)}
                     ${this.infoRow('守军特性', this.getGuardTraitSummary(slot))}
                     ${this.infoRow('守军历练', this.getGuardVeterancySummary(slot))}
                     ${this.infoRow('老兵支援', veterancySupportText)}
@@ -4072,12 +4257,12 @@
                     const guardNote = this.canFacilityHostGuards(slot)
                         ? `守军 ${slot.guards.length}/${guardCapacity}`
                         : '不可驻防，但升级会更快提高防御';
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。路口施压：${this.getGuardPressurePreviewText(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。路口施压：${this.getGuardPressurePreviewText(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
                 
@@ -4129,12 +4314,12 @@
                     const guardNote = this.canFacilityHostGuards(slot)
                         ? `守军 ${slot.guards.length}/${guardCapacity}`
                         : '不可驻防，但升级会更快提高防御';
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。战术编成：${this.getGuardDoctrineSummaryText(slot, '驻军编成')}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。本路口支援：${this.getBattleSupportSummaryText(player)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。战术编成：${this.getGuardDoctrineSummaryText(slot, '驻军编成')}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。本路口支援：${this.getBattleSupportSummaryText(player)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
 
@@ -5698,7 +5883,7 @@
                 const options = document.getElementById('guard-recruit-options');
                 const cost = this.getGuardRecruitCost(slot);
                 options.innerHTML = '';
-                document.getElementById('build-desc').innerText = `选择要补入的守军。当前花费 ${cost}G，不同守军会直接影响攻城战表现。`;
+                document.getElementById('build-desc').innerText = `选择要补入的守军。当前花费 ${cost}G，新守军会继承 ${this.getFacilityName(slot)} 的驻军训练，不同守军会直接影响攻城战表现。`;
 
                 this.guardArchetypes.forEach(archetype => {
                     const copy = this.getGuardRecruitMenuCopy(archetype, slot);
@@ -5735,7 +5920,7 @@
                 slot.defense += 6 + slot.level * 2;
                 this.updateGuardMarkers(slot);
                 this.createFloatingText("+守军", slot.mesh.position, "#1e90ff");
-                this.log(`花费 ${cost}G 为 ${this.getFacilityName(slot)} 招募了 ${guard.name}。`);
+                this.log(`花费 ${cost}G 为 ${this.getFacilityName(slot)} 招募了 ${guard.name}，继承了${guard.training?.label || '通用操练'}。`);
             },
 
             demolishSelectedFacility() {
