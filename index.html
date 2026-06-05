@@ -832,14 +832,19 @@
                 GUARD_UP: { name: '架盾', kind: 'defend', block: 9, text: '本回合大幅减伤。' },
                 FIREBALL: { name: '火球', kind: 'skill', power: 16, text: '造成 ATK+16 技能伤害。' },
                 RALLY: { name: '振奋', kind: 'buff', atk: 2, text: '永久 ATK +2。' },
-                MEND: { name: '治愈', kind: 'heal', heal: 16, text: '恢复 16HP。' },
+                MEND: { name: '治疗', kind: 'heal', heal: 16, text: '恢复 16HP。' },
                 TOWER_GUARD: { name: '塔盾掩护', kind: 'defend', block: 13, text: '临时城防掩护，本回合获得更厚的格挡。' },
                 PIKE_CHARGE: { name: '枪阵突击', kind: 'skill', power: 13, text: '守军枪阵前压，造成 ATK+13 技能伤害。' },
                 FIELD_DRESS: { name: '战地包扎', kind: 'heal', heal: 18, text: '恢复 18HP，并稳住战线。' },
                 AMBUSH: { name: '侧翼伏击', kind: 'skill', power: 14, text: '斥候与机关配合，从侧翼打出 ATK+14。' },
                 WAR_BANNER: { name: '战旗推进', kind: 'buff', atk: 3, text: '本场作战士气高涨，永久 ATK +3。' },
-                SIEGE_KIT: { name: '攻城工包', kind: 'attack', power: 11, text: '工坊器具强拆城防，造成 ATK+11 伤害。' },
-                SUPPLY_LINE: { name: '补给线', kind: 'heal', heal: 14, text: '同路块后方补给赶到，恢复 14HP。' }
+                SIEGE_KIT: { name: '攻城工具', kind: 'attack', power: 11, text: '工坊器具强拆城防，造成 ATK+11 伤害。' },
+                SUPPLY_LINE: { name: '补给线', kind: 'heal', heal: 14, text: '同路块后方补给赶到，恢复 14HP。' },
+                HOLD_FAST: { name: '老兵固守', kind: 'defend', block: 17, text: '老兵举盾顶住冲击，本回合获得 17 点格挡。' },
+                FLANK_ORDER: { name: '包抄号令', kind: 'skill', power: 18, text: '老兵从侧翼同时压上，造成 ATK+18 技能伤害。' },
+                SHADOW_PATH: { name: '影径潜袭', kind: 'skill', power: 16, text: '老练斥候切入死角，造成 ATK+16 技能伤害。' },
+                VETERAN_DRILL: { name: '老兵战训', kind: 'buff', atk: 4, text: '老兵带着新兵再演一遍，永久 ATK +4。' },
+                FIELD_RATIONS: { name: '战场干粮', kind: 'heal', heal: 20, text: '老兵后勤管理更稳，恢复 20HP。' }
             },
             facilityConfigs: {
                 TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10, allowsGuards: true, guardSlots: 1 },
@@ -1959,19 +1964,19 @@
                     .sort((a, b) => roleCounts[b] - roleCounts[a])[0];
                 if (roleCounts[dominantRole] > 0) {
                     const roleCardMap = {
-                        SHIELD: ['TOWER_GUARD', '老兵盾列'],
-                        SPEAR: ['PIKE_CHARGE', '老兵枪阵'],
-                        SCOUT: ['AMBUSH', '老兵潜袭']
+                        SHIELD: ['HOLD_FAST', '老兵盾列'],
+                        SPEAR: ['FLANK_ORDER', '老兵枪阵'],
+                        SCOUT: ['SHADOW_PATH', '老兵潜袭']
                     };
                     const [cardId, label] = roleCardMap[dominantRole];
                     pushCard(cardId, label);
                 }
 
                 if (highestVeterancy >= 2) {
-                    pushCard('WAR_BANNER', '资深指挥');
+                    pushCard('VETERAN_DRILL', '资深指挥');
                 }
                 if (highestVeterancy >= 3 || totalVeterancy >= 5) {
-                    pushCard('SUPPLY_LINE', '老兵补给');
+                    pushCard('FIELD_RATIONS', '老兵补给');
                 }
 
                 return {
@@ -3418,7 +3423,8 @@
                     if (roleCounts.SHIELD > 0) guardCards.push('TOWER_GUARD');
                     if (roleCounts.SPEAR > 0) guardCards.push('PIKE_CHARGE');
                     if (roleCounts.SCOUT > 0) guardCards.push('AMBUSH');
-                    return [...new Set([facilityCard, eliteCard, ...guardCards, ...basePool].filter(Boolean))];
+                    const veteranCards = this.getGuardVeterancyPackage(source.slot, 'Veteran Spoils').cardIds || [];
+                    return [...new Set([facilityCard, eliteCard, ...guardCards, ...veteranCards, ...basePool, 'HOLD_FAST', 'FLANK_ORDER', 'SHADOW_PATH', 'VETERAN_DRILL', 'FIELD_RATIONS'].filter(Boolean))];
                 }
                 if (source.kind === 'monster') {
                     return source.monster?.rewardPool?.length
