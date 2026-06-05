@@ -818,6 +818,7 @@
             battleHand: [],
             battleSupportCards: [],
             battleSupportSummary: [],
+            battleDrawCount: 3,
             diceOccluderSnapshots: [],
             wizardTradeResolver: null,
             wizardCardChoices: [],
@@ -2476,11 +2477,56 @@
                 return eliteByType[slot?.type] || null;
             },
 
+            getBattleComboSupportPackage(slot) {
+                const combo = this.getGuardTrainingComboPayload(slot);
+                if (!combo.labels.length) {
+                    return { cardIds: [], summary: [], extraDraw: 0, openingHeal: 0 };
+                }
+
+                const cardIds = [];
+                const summary = [];
+                const addCard = (cardId, label) => {
+                    if (!this.cardLibrary[cardId] || cardIds.includes(cardId)) return;
+                    cardIds.push(cardId);
+                    summary.push(`${this.getFacilityName(slot)}联动:${label}:${this.getCardDisplayName(cardId)}`);
+                };
+
+                combo.supportCardIds.forEach(cardId => addCard(cardId, combo.labels.join('/')));
+
+                let extraDraw = 0;
+                let openingHeal = 0;
+
+                if (combo.labels.some(label => label.startsWith('军令突击'))) {
+                    extraDraw += 1;
+                    summary.push(`${this.getFacilityName(slot)}联动:军令突击:本场多抽 1 张`);
+                }
+                if (combo.labels.some(label => label.startsWith('暗线伏运'))) {
+                    extraDraw += 1;
+                    summary.push(`${this.getFacilityName(slot)}联动:暗线伏运:本场多抽 1 张`);
+                }
+                if (combo.labels.some(label => label.startsWith('后勤轮转'))) {
+                    openingHeal += 6;
+                    summary.push(`${this.getFacilityName(slot)}联动:后勤轮转:战前整补 6HP`);
+                }
+                if (combo.labels.some(label => label.startsWith('壁垒工事'))) {
+                    addCard('TOWER_GUARD', '壁垒工事');
+                }
+
+                return {
+                    cardIds: cardIds.slice(0, 3),
+                    summary: summary.slice(0, 4),
+                    extraDraw: Math.min(2, extraDraw),
+                    openingHeal
+                };
+            },
+
             getBattleSupportPackage(player) {
                 if (!player) return { cardIds: [], summary: [] };
                 const supportSlots = this.getNodeOwnedFacilities(player);
                 const cardIds = [];
                 const summary = [];
+                let extraDraw = 0;
+                let openingHeal = 0;
 
                 supportSlots.forEach(slot => {
                     const baseCardId = this.getFacilitySupportCardId(slot);
@@ -2528,11 +2574,19 @@
                     const veterancySupport = this.getGuardVeterancyPackage(slot, `老兵:${this.getFacilityName(slot)}`);
                     veterancySupport.cardIds.forEach(cardId => cardIds.push(cardId));
                     veterancySupport.summary.forEach(line => summary.push(line));
+
+                    const comboSupport = this.getBattleComboSupportPackage(slot);
+                    comboSupport.cardIds.forEach(cardId => cardIds.push(cardId));
+                    comboSupport.summary.forEach(line => summary.push(line));
+                    extraDraw += comboSupport.extraDraw || 0;
+                    openingHeal += comboSupport.openingHeal || 0;
                 });
 
                 return {
-                    cardIds: cardIds.slice(0, 8),
-                    summary: summary.slice(0, 8)
+                    cardIds: cardIds.slice(0, 10),
+                    summary: summary.slice(0, 10),
+                    extraDraw: Math.min(2, extraDraw),
+                    openingHeal
                 };
             },
 
@@ -5176,7 +5230,7 @@
             },
 
             waitForBattleCommand(attacker) {
-                this.drawBattleCards(attacker, 3);
+                this.drawBattleCards(attacker, this.battleDrawCount || 3);
                 this.renderBattleCommandUi(attacker, 'commands');
                 return new Promise(resolve => {
                     this.battleCommandResolver = resolve;
@@ -5189,6 +5243,7 @@
                 const preparedSummary = [...(player.preparedBattleSummary || [])];
                 this.battleSupportCards = [...preparedCards, ...supportCards];
                 this.battleSupportSummary = [...preparedSummary, ...(supportPackage?.summary || [])];
+                this.battleDrawCount = 3 + Math.min(2, supportPackage?.extraDraw || 0);
                 player.drawPile = this.shuffleCards([...(player.deck || []), ...preparedCards, ...supportCards]);
                 player.discardPile = [];
                 this.battleHand = [];
@@ -5970,6 +6025,15 @@
                 if (attacker.isPlayer) {
                     const supportPackage = this.getBattleSupportPackage(attacker);
                     this.prepareBattleDeck(attacker, supportPackage);
+                    if ((supportPackage.openingHeal || 0) > 0) {
+                        const before = attacker.hp;
+                        attacker.hp = Math.min(attacker.maxHp, attacker.hp + supportPackage.openingHeal);
+                        const healed = attacker.hp - before;
+                        if (healed > 0) {
+                            this.createFloatingText(`联动整补 +${healed}`, attacker.meshGroup.position, "#2ed573");
+                            this.log(`同路训练联动在战前为 ${attacker.name} 整补了 ${healed} HP。`);
+                        }
+                    }
                     if (supportPackage.summary.length > 0) {
                         this.log(`同路块支援已经并入本场牌库：${supportPackage.summary.join(' / ')}。`);
                         this.createFloatingText('战术支援', attacker.meshGroup.position, "#70a1ff");
