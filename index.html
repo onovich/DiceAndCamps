@@ -744,6 +744,7 @@
             battleRewardPlayerId: null,
             actionConsumedThisTurn: false,
             maxFacilityLevel: 3,
+            wizardRemoveCost: 45,
             cardLibrary: {
                 STRIKE: { name: '斩击', kind: 'attack', power: 8, text: '造成 ATK+8 伤害。' },
                 GUARD_UP: { name: '架盾', kind: 'defend', block: 9, text: '本回合大幅减伤。' },
@@ -2700,7 +2701,14 @@
                 this.transitionTo(TurnState.WIZARD_EVENT);
                 this.log(`${player.name} 来到岔路尽头的巫师摊位。`);
                 if (!player.isPlayer) {
-                    if (player.gold >= 60) {
+                    if (player.deck.length >= 8 && player.gold >= this.wizardRemoveCost && Math.random() < 0.45) {
+                        player.gold -= this.wizardRemoveCost;
+                        const removeIndex = player.deck.findIndex(cardId => cardId === 'STRIKE' || cardId === 'GUARD_UP');
+                        if (removeIndex >= 0) {
+                            const removed = player.deck.splice(removeIndex, 1)[0];
+                            this.log(`${player.name} 在巫师摊位净化掉了 ${this.cardLibrary[removed]?.name || removed}。`);
+                        }
+                    } else if (player.gold >= 60) {
                         player.gold -= 60;
                         this.grantRandomCard(player);
                     } else if (player.hp > 20) {
@@ -2735,6 +2743,7 @@
                 document.getElementById('wizard-options').innerHTML = `
                     <button class="build-btn training" onclick="Game.resolveWizardTrade('gold')">献上 60G</button>
                     <button class="build-btn heal" onclick="Game.resolveWizardTrade('hp')">献上 12HP</button>
+                    <button class="build-btn transfer" onclick="Game.resolveWizardTrade('trim')">净化 45G</button>
                     <button class="build-btn cancel" onclick="Game.resolveWizardTrade('skip')">离开</button>
                 `;
             },
@@ -2758,6 +2767,13 @@
                     }
                     player.hp = Math.max(1, player.hp - 12);
                     this.showWizardCardChoices(player);
+                    return;
+                } else if (choice === 'trim') {
+                    if (player.deck.length === 0) {
+                        this.log("你的牌库已经空了，没有东西可净化。");
+                        return;
+                    }
+                    this.showWizardRemovalChoices(player);
                     return;
                 } else {
                     this.log("你离开了巫师摊位。");
@@ -2784,11 +2800,62 @@
                 });
             },
 
+            showWizardRemovalChoices(player) {
+                this.updateUI();
+                const optionBox = document.getElementById('wizard-options');
+                document.getElementById('wizard-desc').innerText = `献上 ${this.wizardRemoveCost}G，净化 1 张牌。`;
+                optionBox.innerHTML = '';
+
+                const counts = new Map();
+                (player.deck || []).forEach(cardId => {
+                    counts.set(cardId, (counts.get(cardId) || 0) + 1);
+                });
+
+                Array.from(counts.entries()).forEach(([cardId, count]) => {
+                    const card = this.cardLibrary[cardId];
+                    if (!card) return;
+                    const btn = document.createElement('button');
+                    btn.className = 'battle-card';
+                    btn.onclick = () => this.chooseWizardRemovalCard(cardId);
+                    btn.innerHTML = `<strong>${card.name} x${count}</strong><em>${this.getCardKindLabel(card.kind)}</em><span>${card.text}</span>`;
+                    optionBox.appendChild(btn);
+                });
+
+                const backBtn = document.createElement('button');
+                backBtn.className = 'battle-card back';
+                backBtn.onclick = () => this.resetWizardMenu();
+                backBtn.innerHTML = '<strong>返回</strong><span>回到献祭与换牌的选择。</span>';
+                optionBox.appendChild(backBtn);
+            },
+
             chooseWizardCard(cardId) {
                 if (!this.wizardTradeResolver) return;
                 const player = this.players[this.currentPlayerIndex];
                 this.grantCard(player, cardId);
                 this.wizardCardChoices = [];
+                const resolve = this.wizardTradeResolver;
+                resolve();
+            },
+
+            chooseWizardRemovalCard(cardId) {
+                if (!this.wizardTradeResolver) return;
+                const player = this.players[this.currentPlayerIndex];
+                if (player.gold < this.wizardRemoveCost) {
+                    this.log(`金币不足，净化 1 张牌需要 ${this.wizardRemoveCost}G。`);
+                    return;
+                }
+                const removeIndex = player.deck.findIndex(entry => entry === cardId);
+                if (removeIndex < 0) {
+                    this.log("这张牌已经不在牌库里了。");
+                    this.showWizardRemovalChoices(player);
+                    return;
+                }
+
+                player.gold -= this.wizardRemoveCost;
+                const removed = player.deck.splice(removeIndex, 1)[0];
+                const card = this.cardLibrary[removed];
+                this.log(`巫师收下了 ${this.wizardRemoveCost}G，并替你净化掉了《${card?.name || removed}》。`);
+                this.createFloatingText(`-${card?.name || removed}`, player.meshGroup.position, "#ff6b81");
                 const resolve = this.wizardTradeResolver;
                 resolve();
             },
