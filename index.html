@@ -1921,6 +1921,72 @@
                     .join(' / ');
             },
 
+            getGuardVeterancyPackage(slotOrGuards, sourceLabel = '老兵支援') {
+                const guards = Array.isArray(slotOrGuards)
+                    ? slotOrGuards
+                    : (slotOrGuards?.guards || []);
+                if (guards.length === 0) {
+                    return { cardIds: [], summary: [] };
+                }
+
+                const roleCounts = { SHIELD: 0, SPEAR: 0, SCOUT: 0 };
+                let veteranCount = 0;
+                let highestVeterancy = 0;
+                let totalVeterancy = 0;
+                guards.forEach(guard => {
+                    const rank = guard.veterancy || 0;
+                    highestVeterancy = Math.max(highestVeterancy, rank);
+                    totalVeterancy += rank;
+                    if (rank > 0) {
+                        veteranCount += 1;
+                        if (roleCounts[guard.key] !== undefined) roleCounts[guard.key] += 1;
+                    }
+                });
+
+                if (veteranCount === 0) {
+                    return { cardIds: [], summary: [] };
+                }
+
+                const cardIds = [];
+                const summary = [];
+                const pushCard = (cardId, label) => {
+                    if (!this.cardLibrary[cardId] || cardIds.includes(cardId)) return;
+                    cardIds.push(cardId);
+                    summary.push(`${sourceLabel}:${label}:${this.cardLibrary[cardId].name}`);
+                };
+
+                const dominantRole = ['SHIELD', 'SPEAR', 'SCOUT']
+                    .sort((a, b) => roleCounts[b] - roleCounts[a])[0];
+                if (roleCounts[dominantRole] > 0) {
+                    const roleCardMap = {
+                        SHIELD: ['TOWER_GUARD', '老兵盾列'],
+                        SPEAR: ['PIKE_CHARGE', '老兵枪阵'],
+                        SCOUT: ['AMBUSH', '老兵潜袭']
+                    };
+                    const [cardId, label] = roleCardMap[dominantRole];
+                    pushCard(cardId, label);
+                }
+
+                if (highestVeterancy >= 2) {
+                    pushCard('WAR_BANNER', '资深指挥');
+                }
+                if (highestVeterancy >= 3 || totalVeterancy >= 5) {
+                    pushCard('SUPPLY_LINE', '老兵补给');
+                }
+
+                return {
+                    cardIds: cardIds.slice(0, 3),
+                    summary: summary.slice(0, 3)
+                };
+            },
+
+            getGuardVeterancySupportText(slot, sourceLabel = '老兵支援') {
+                const packageInfo = this.getGuardVeterancyPackage(slot, sourceLabel);
+                return packageInfo.summary.length > 0
+                    ? packageInfo.summary.join(' / ')
+                    : '暂无老兵支援';
+            },
+
             getGuardDoctrinePackage(roleCounts, sourceLabel = '战术编成') {
                 if (!roleCounts || roleCounts.total <= 0) {
                     return { cardIds: [], summary: [] };
@@ -2086,6 +2152,12 @@
                 const doctrine = this.getGuardDoctrinePackage(roleCounts, '同路守军');
                 doctrine.cardIds.forEach(cardId => cardIds.push(cardId));
                 doctrine.summary.forEach(line => summary.push(line));
+
+                supportSlots.forEach(slot => {
+                    const veterancySupport = this.getGuardVeterancyPackage(slot, `老兵:${this.getFacilityName(slot)}`);
+                    veterancySupport.cardIds.forEach(cardId => cardIds.push(cardId));
+                    veterancySupport.summary.forEach(line => summary.push(line));
+                });
 
                 return {
                     cardIds: cardIds.slice(0, 8),
@@ -2587,6 +2659,7 @@
                 const capacity = this.getGuardCapacity(slot);
                 const preview = this.getBuildingBattlePreview(slot);
                 const doctrineText = this.getGuardDoctrineSummaryText(slot, '驻军编成');
+                const veterancySupportText = this.getGuardVeterancySupportText(slot, '老兵支援');
                 const spoilsText = this.getFacilitySpoilsPreviewText(slot);
                 const guardText = capacity > 0
                     ? `${slot.guards.length}/${capacity}`
@@ -2601,6 +2674,7 @@
                     ${this.infoRow('驻军编成', this.getGuardSummary(slot, ' | '))}
                     ${this.infoRow('守军特性', this.getGuardTraitSummary(slot))}
                     ${this.infoRow('守军历练', this.getGuardVeterancySummary(slot))}
+                    ${this.infoRow('老兵支援', veterancySupportText)}
                     ${this.infoRow('战术编成', doctrineText)}
                     ${this.infoRow('推荐补员', this.getGuardArchetype(null, slot)?.name || '通用守军')}
                     ${this.infoRow('防守类型', preview.battlePlan || preview.label)}
@@ -3153,6 +3227,11 @@
                     this.log(`城防工坊加固了城墙，本体防御 +${selfFortify}${others.length > 0 ? `，并强化同路口 ${others.length} 座友方建筑` : ''}。`);
                     this.createFloatingText(`墙体加固 +${selfFortify}`, slot.mesh.position, "#747d8c");
                 }
+                const veteranSupport = this.getGuardVeterancyPackage(slot, `老兵值守:${this.getFacilityName(slot)}`);
+                if (veteranSupport.cardIds.length > 0 && this.queuePreparedBattleCard(player, veteranSupport.cardIds[0], `老兵值守:${this.getFacilityName(slot)}`)) {
+                    this.createFloatingText('+老兵筹备', slot.mesh.position, "#1e90ff");
+                }
+
                 await this.wait(260);
             },
 
@@ -3388,6 +3467,16 @@
                         preparedCards.push({
                             cardId,
                             sourceLabel: `缴获编成:${facilityName}`
+                        });
+                    }
+                });
+
+                const veterancySupport = this.getGuardVeterancyPackage(slot, `老兵战利品:${facilityName}`);
+                veterancySupport.cardIds.forEach(cardId => {
+                    if (!preparedCards.some(entry => entry.cardId === cardId)) {
+                        preparedCards.push({
+                            cardId,
+                            sourceLabel: `缴获老兵经验:${facilityName}`
                         });
                     }
                 });
