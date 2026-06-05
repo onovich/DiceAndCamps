@@ -3159,6 +3159,82 @@
                 return basePool;
             },
 
+            getFacilitySiegeSpoils(slot) {
+                if (!slot || slot.type === 'EMPTY') {
+                    return { preparedCards: [], refine: null };
+                }
+
+                const facilityName = this.getFacilityName(slot);
+                const preparedCards = [];
+                const supportCardId = this.getFacilitySupportCardId(slot);
+                const eliteCardId = slot.level >= slot.maxLevel ? this.getFacilityEliteSupportCardId(slot) : null;
+                const roleCounts = this.getGuardRoleCounts(slot);
+
+                if (supportCardId && this.cardLibrary[supportCardId]) {
+                    preparedCards.push({
+                        cardId: supportCardId,
+                        sourceLabel: `攻陷${facilityName}`
+                    });
+                }
+
+                if (roleCounts.SHIELD > 0 && !preparedCards.some(entry => entry.cardId === 'TOWER_GUARD')) {
+                    preparedCards.push({ cardId: 'TOWER_GUARD', sourceLabel: `缴获盾阵:${facilityName}` });
+                } else if (roleCounts.SPEAR > 0 && !preparedCards.some(entry => entry.cardId === 'PIKE_CHARGE')) {
+                    preparedCards.push({ cardId: 'PIKE_CHARGE', sourceLabel: `缴获枪阵:${facilityName}` });
+                } else if (roleCounts.SCOUT > 0 && !preparedCards.some(entry => entry.cardId === 'AMBUSH')) {
+                    preparedCards.push({ cardId: 'AMBUSH', sourceLabel: `缴获斥候情报:${facilityName}` });
+                }
+
+                if (eliteCardId && this.cardLibrary[eliteCardId] && !preparedCards.some(entry => entry.cardId === eliteCardId)) {
+                    preparedCards.push({
+                        cardId: eliteCardId,
+                        sourceLabel: `攻城战利品:${facilityName}`
+                    });
+                }
+
+                const refineByType = {
+                    TRAP: { from: ['STRIKE', 'AMBUSH'], to: 'AMBUSH' },
+                    GUARD: { from: ['GUARD_UP', 'STRIKE'], to: 'TOWER_GUARD' },
+                    INCOME: { from: ['MEND', 'RALLY'], to: 'SUPPLY_LINE' },
+                    HEAL: { from: 'MEND', to: 'FIELD_DRESS' },
+                    TRAINING: { from: 'STRIKE', to: 'PIKE_CHARGE' },
+                    BARRACKS: { from: 'GUARD_UP', to: 'TOWER_GUARD' },
+                    COMMAND: { from: ['RALLY', 'STRIKE'], to: 'WAR_BANNER' },
+                    FORTRESS: { from: ['GUARD_UP', 'TOWER_GUARD'], to: 'TOWER_GUARD' },
+                    WORKSHOP: { from: ['STRIKE', 'PIKE_CHARGE'], to: 'SIEGE_KIT' }
+                };
+
+                const refine = (slot.level >= 2 || slot.guards.length > 0)
+                    ? refineByType[slot.type] || null
+                    : null;
+
+                return {
+                    preparedCards: preparedCards.slice(0, 2),
+                    refine
+                };
+            },
+
+            applyFacilitySiegeSpoils(player, slot) {
+                if (!player || !slot || slot.type === 'EMPTY') return;
+
+                const spoils = this.getFacilitySiegeSpoils(slot);
+                const preparedNames = [];
+                spoils.preparedCards.forEach(entry => {
+                    if (this.queuePreparedBattleCard(player, entry.cardId, entry.sourceLabel)) {
+                        preparedNames.push(this.cardLibrary[entry.cardId]?.name || entry.cardId);
+                    }
+                });
+
+                if (preparedNames.length > 0) {
+                    this.log(`攻下 ${this.getFacilityName(slot)} 后，你缴获了 ${preparedNames.join(' / ')}，已加入下一场战斗的战利品筹备。`);
+                    this.createFloatingText('+战利品牌', slot.mesh.position, "#1e90ff");
+                }
+
+                if (spoils.refine) {
+                    this.refineDeckCard(player, spoils.refine.from, spoils.refine.to, `攻陷${this.getFacilityName(slot)}`);
+                }
+            },
+
             async offerBattleCardReward(player, source = {}) {
                 if (!player?.isPlayer) return;
                 const pool = this.shuffleCards(this.getBattleRewardPool(source)).slice(0, 3);
@@ -3704,6 +3780,7 @@
                     const rewardSource = { kind: 'facility', slot: { ...slot, guards: [...slot.guards] } };
                     player.gold += rewards.gold;
                     this.gainExp(player, rewards.exp);
+                    this.applyFacilitySiegeSpoils(player, slot);
                     this.clearFacility(slot);
                     this.createFloatingText("摧毁", slot.mesh.position, "#ff4757");
                     this.log(`攻破并摧毁了敌方 ${name}，获得 ${rewards.gold}G 和 ${rewards.exp}EXP。胜利不消耗行动。`);
