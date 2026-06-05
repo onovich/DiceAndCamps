@@ -67,7 +67,7 @@ This file tracks the original 20-point goal against the current codebase so we c
 17. `Partial`  
     Building roster, guard recruitment / transfer, guard roles, and many owned/enemy events already exist in `index.html:750`, `index.html:2437`, `index.html:2669`, `index.html:3020`, `index.html:4471`.  
     This turn also deepened facility-specific siege identity and battle plans in `index.html:1717`, `index.html:1764`, `index.html:3851`.  
-    Same-node owned facilities and stationed guards now feed temporary battle support cards into the player's deck, further linking map control to combat in `index.html`.
+    Same-node owned facilities and stationed guards now feed temporary battle support cards into the player's deck, and player victories now offer post-battle card rewards, further linking map control to combat in `index.html`.
     Still not at the original “fully fleshed out content layer” target.
 
 18. `Complete`  

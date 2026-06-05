@@ -622,7 +622,7 @@
         </div>
 
         <div id="wizard-menu" class="panel">
-            <h3 style="margin-top:0;">岔路巫师</h3>
+            <h3 id="wizard-title" style="margin-top:0;">岔路巫师</h3>
             <p id="wizard-desc">献上一点代价，换一张战斗卡。</p>
             <div id="wizard-options">
                 <button class="build-btn training" onclick="Game.resolveWizardTrade('gold')">献上 60G</button>
@@ -739,6 +739,9 @@
             diceOccluderSnapshots: [],
             wizardTradeResolver: null,
             wizardCardChoices: [],
+            battleRewardResolver: null,
+            battleRewardChoices: [],
+            battleRewardPlayerId: null,
             actionConsumedThisTurn: false,
             maxFacilityLevel: 3,
             cardLibrary: {
@@ -2684,6 +2687,9 @@
 
             resetWizardMenu() {
                 this.wizardCardChoices = [];
+                this.battleRewardChoices = [];
+                this.battleRewardPlayerId = null;
+                document.getElementById('wizard-title').innerText = "岔路巫师";
                 document.getElementById('wizard-desc').innerText = "献上一点代价，换一张战斗卡。";
                 document.getElementById('wizard-options').innerHTML = `
                     <button class="build-btn training" onclick="Game.resolveWizardTrade('gold')">献上 60G</button>
@@ -2750,6 +2756,74 @@
                 const pool = ['FIREBALL', 'RALLY', 'MEND', 'GUARD_UP'];
                 const cardId = pool[Math.floor(Math.random() * pool.length)];
                 this.grantCard(player, cardId);
+            },
+
+            getBattleRewardPool(source = {}) {
+                const basePool = ['STRIKE', 'GUARD_UP', 'FIREBALL', 'RALLY', 'MEND', 'PIKE_CHARGE', 'FIELD_DRESS', 'AMBUSH', 'WAR_BANNER', 'SIEGE_KIT', 'SUPPLY_LINE', 'TOWER_GUARD'];
+                if (source.kind === 'facility' && source.slot) {
+                    const facilityCard = this.getFacilitySupportCardId(source.slot);
+                    const eliteCard = this.getFacilityEliteSupportCardId(source.slot);
+                    const guardCards = [];
+                    const roleCounts = this.getGuardRoleCounts(source.slot);
+                    if (roleCounts.SHIELD > 0) guardCards.push('TOWER_GUARD');
+                    if (roleCounts.SPEAR > 0) guardCards.push('PIKE_CHARGE');
+                    if (roleCounts.SCOUT > 0) guardCards.push('AMBUSH');
+                    return [...new Set([facilityCard, eliteCard, ...guardCards, ...basePool].filter(Boolean))];
+                }
+                if (source.kind === 'monster') {
+                    return ['STRIKE', 'GUARD_UP', 'FIREBALL', 'MEND', 'AMBUSH', 'FIELD_DRESS', 'RALLY'];
+                }
+                return basePool;
+            },
+
+            async offerBattleCardReward(player, source = {}) {
+                if (!player?.isPlayer) return;
+                const pool = this.shuffleCards(this.getBattleRewardPool(source)).slice(0, 3);
+                if (pool.length === 0) return;
+
+                this.battleRewardChoices = pool;
+                this.battleRewardPlayerId = player.id;
+                document.getElementById('wizard-title').innerText = source.kind === 'facility' ? "攻城战利品" : "战后收获";
+                document.getElementById('wizard-desc').innerText = `从这场${source.kind === 'facility' ? '攻城战' : '战斗'}里挑 1 张卡加入牌库，也可以跳过。`;
+                const optionBox = document.getElementById('wizard-options');
+                optionBox.innerHTML = '';
+                pool.forEach(cardId => {
+                    const card = this.cardLibrary[cardId];
+                    const btn = document.createElement('button');
+                    btn.className = 'battle-card';
+                    btn.onclick = () => this.chooseBattleRewardCard(cardId);
+                    btn.innerHTML = `<strong>${card.name}</strong><em>${this.getCardKindLabel(card.kind)}</em><span>${card.text}</span>`;
+                    optionBox.appendChild(btn);
+                });
+                const skipBtn = document.createElement('button');
+                skipBtn.className = 'battle-card back';
+                skipBtn.onclick = () => this.skipBattleReward();
+                skipBtn.innerHTML = '<strong>跳过</strong><span>保持当前牌库，不拿新的战利品牌。</span>';
+                optionBox.appendChild(skipBtn);
+
+                document.getElementById('wizard-menu').style.display = 'block';
+                await new Promise(resolve => {
+                    this.battleRewardResolver = resolve;
+                });
+                document.getElementById('wizard-menu').style.display = 'none';
+                this.battleRewardResolver = null;
+                this.resetWizardMenu();
+                this.updateUI();
+            },
+
+            chooseBattleRewardCard(cardId) {
+                if (!this.battleRewardResolver) return;
+                const player = this.players.find(p => p.id === this.battleRewardPlayerId) || this.players[this.currentPlayerIndex];
+                this.grantCard(player, cardId);
+                const resolve = this.battleRewardResolver;
+                resolve(cardId);
+            },
+
+            skipBattleReward() {
+                if (!this.battleRewardResolver) return;
+                this.log("你没有带走新的战利品牌。");
+                const resolve = this.battleRewardResolver;
+                resolve(null);
             },
 
             grantCard(player, cardId) {
@@ -3199,6 +3273,7 @@
                     this.gainExp(player, slot.monster.exp);
                     this.clearMonster(slot);
                     this.log("野怪被赶走了，这块地现在可以建造。");
+                    await this.offerBattleCardReward(player, { kind: 'monster', monster: slot.monster });
                     this.updateUI();
                     this.finishAction(false);
                 } else {
@@ -3228,11 +3303,13 @@
                 if (victory) {
                     const rewards = this.getFacilityBattleRewards(slot);
                     const name = this.getFacilityName(slot);
+                    const rewardSource = { kind: 'facility', slot: { ...slot, guards: [...slot.guards] } };
                     player.gold += rewards.gold;
                     this.gainExp(player, rewards.exp);
                     this.clearFacility(slot);
                     this.createFloatingText("摧毁", slot.mesh.position, "#ff4757");
                     this.log(`攻破并摧毁了敌方 ${name}，获得 ${rewards.gold}G 和 ${rewards.exp}EXP。胜利不消耗行动。`);
+                    await this.offerBattleCardReward(player, rewardSource);
                     this.updateUI();
                     this.finishAction(false);
                 } else {
