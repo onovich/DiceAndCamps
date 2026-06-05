@@ -596,6 +596,60 @@
             gap: 12px;
             white-space: nowrap;
         }
+        #debug-panel {
+            position: absolute;
+            left: 20px;
+            bottom: 20px;
+            display: none;
+            width: min(320px, calc(100vw - 40px));
+            z-index: 60;
+        }
+        .debug-title {
+            margin: 0 0 8px 0;
+            font-size: 16px;
+            color: #111;
+        }
+        .debug-note {
+            font-size: 12px;
+            line-height: 1.4;
+            color: #333;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        .debug-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .debug-btn {
+            padding: 8px 10px;
+            border: 3px solid #111;
+            border-radius: 8px;
+            background: #fff8e8;
+            color: #111;
+            font-size: 12px;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 4px 0 #111;
+        }
+        .debug-btn.primary {
+            background: #70a1ff;
+            color: #fff;
+        }
+        .debug-btn:active {
+            transform: translateY(4px);
+            box-shadow: none;
+        }
+        .debug-status {
+            margin-top: 10px;
+            padding: 8px 10px;
+            border: 2px solid #111;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.88);
+            font-size: 12px;
+            font-weight: 800;
+            color: #333;
+        }
 
         #branch-menu {
             position: absolute;
@@ -721,6 +775,7 @@
         <div id="battle-result"></div>
         <div id="hover-info"></div>
         <div id="battle-status"></div>
+        <div id="debug-panel" class="panel"></div>
 
         <div id="battle-ui"></div>
 
@@ -820,6 +875,11 @@
             battleSupportSummary: [],
             battleDrawCount: 3,
             diceOccluderSnapshots: [],
+            activeDiceMesh: null,
+            debugConfig: { enabled: false, scene: '', hold: '', auto: false },
+            debugPauseTag: '',
+            debugResumeResolver: null,
+            debugPreviewRunning: false,
             wizardTradeResolver: null,
             wizardCardChoices: [],
             battleRewardResolver: null,
@@ -950,6 +1010,92 @@
                 };
             },
 
+            readDebugConfig() {
+                const params = new URLSearchParams(window.location.search);
+                const scene = params.get('scene') || '';
+                return {
+                    enabled: params.get('debug') === '1' || !!scene,
+                    scene,
+                    hold: params.get('hold') || '',
+                    auto: params.get('auto') !== '0'
+                };
+            },
+
+            getDebugSceneLabel(scene) {
+                const labels = {
+                    map: '地图预览',
+                    dice: '骰子落点',
+                    'battle-monster': '野怪战场',
+                    'battle-facility': '建筑战场',
+                    'result-victory': '胜利结算',
+                    'result-defeat': '失败结算'
+                };
+                return labels[scene] || '调试场景';
+            },
+
+            initDebugPanel() {
+                const panel = document.getElementById('debug-panel');
+                if (!panel) return;
+                if (!this.debugConfig.enabled) {
+                    panel.style.display = 'none';
+                    return;
+                }
+                panel.style.display = 'block';
+                this.renderDebugPanel('可直接跳到验收场景。');
+            },
+
+            renderDebugPanel(statusText = '') {
+                const panel = document.getElementById('debug-panel');
+                if (!panel || !this.debugConfig.enabled) return;
+                const paused = this.debugPauseTag
+                    ? `已暂停在 ${this.debugPauseTag}，可继续或切场景。`
+                    : (statusText || '可直接跳到验收场景。');
+                panel.innerHTML = `
+                    <h4 class="debug-title">验收场景</h4>
+                    <div class="debug-note">当前参数：scene=${this.escapeHtml(this.debugConfig.scene || 'manual')} / hold=${this.escapeHtml(this.debugConfig.hold || 'none')}</div>
+                    <div class="debug-grid">
+                        <button class="debug-btn" data-scene="map">地图</button>
+                        <button class="debug-btn" data-scene="dice">骰子</button>
+                        <button class="debug-btn" data-scene="battle-monster">野怪战</button>
+                        <button class="debug-btn" data-scene="battle-facility">建筑战</button>
+                        <button class="debug-btn" data-scene="result-victory">胜利结算</button>
+                        <button class="debug-btn" data-scene="result-defeat">失败结算</button>
+                        <button class="debug-btn primary" data-action="resume">继续</button>
+                    </div>
+                    <div class="debug-status">${this.escapeHtml(paused)}</div>
+                `;
+                panel.querySelectorAll('[data-scene]').forEach(btn => {
+                    btn.addEventListener('click', () => this.runDebugScene(btn.dataset.scene));
+                });
+                const resumeBtn = panel.querySelector('[data-action="resume"]');
+                if (resumeBtn) resumeBtn.addEventListener('click', () => this.resumeDebugScene());
+            },
+
+            scheduleDebugScene() {
+                if (!this.debugConfig.enabled || !this.debugConfig.scene || !this.debugConfig.auto) return;
+                setTimeout(() => this.runDebugScene(this.debugConfig.scene), 1800);
+            },
+
+            async maybePauseDebug(tag) {
+                if (!this.debugConfig.enabled || this.debugConfig.hold !== tag) return;
+                this.debugPauseTag = tag;
+                this.renderDebugPanel(`已暂停在 ${tag}。`);
+                await new Promise(resolve => {
+                    this.debugResumeResolver = () => {
+                        this.debugResumeResolver = null;
+                        this.debugPauseTag = '';
+                        this.renderDebugPanel(`继续执行 ${tag} 后续流程。`);
+                        resolve();
+                    };
+                });
+            },
+
+            resumeDebugScene() {
+                if (!this.debugResumeResolver) return;
+                const resume = this.debugResumeResolver;
+                resume();
+            },
+
             returnCameraToFollow() {
                 if (this.cameraReturnTween) this.cameraReturnTween.stop();
                 this.setCameraMode(CameraMode.RETURNING);
@@ -964,6 +1110,7 @@
             },
 
             init() {
+                this.debugConfig = this.readDebugConfig();
                 this.initEngine();
                 this.buildMap();
                 this.initPlayers();
@@ -971,6 +1118,8 @@
                 this.updateUI();
                 this.log("游戏开始！玩家回合。");
                 this.animate();
+                this.initDebugPanel();
+                this.scheduleDebugScene();
             },
 
             initEngine() {
@@ -1013,6 +1162,189 @@
                     this.camera.updateProjectionMatrix();
                     this.renderer.setSize(window.innerWidth, window.innerHeight);
                 });
+            },
+
+            getCurrentPlayer() {
+                return this.players[this.currentPlayerIndex];
+            },
+
+            syncCameraToPlayer(player) {
+                if (!player?.meshGroup) return;
+                this.cameraOffset.set(0, 0, 0);
+                this.cameraTarget.set(player.meshGroup.position.x, player.meshGroup.position.y, player.meshGroup.position.z);
+                this.camera.position.set(player.meshGroup.position.x + 20, 20, player.meshGroup.position.z + 20);
+                this.camera.lookAt(player.meshGroup.position.x, 0, player.meshGroup.position.z);
+                this.camera.zoom = 1;
+                this.camera.updateProjectionMatrix();
+                this.battleCameraFocus = null;
+            },
+
+            teleportPlayerToNode(player, node) {
+                if (!player || !node) return;
+                const oldNodeIndex = player.nodeIndex;
+                player.nodeIndex = node.id;
+                this.reflowNodeOccupants(oldNodeIndex, false, player);
+                this.reflowNodeOccupants(node.id, false);
+                player.meshGroup.position.copy(this.getNodeStandPosition(node.id, player));
+                player.meshGroup.rotation.set(0, 0, 0);
+                this.activeNode = node;
+                this.syncCameraToPlayer(player);
+            },
+
+            async resetDebugSceneState() {
+                this.stopSlotHighlightOnly();
+                this.clearBranchChoiceArrows();
+                this.clearHoverState();
+                this.hideBattleStatus();
+                this.restoreDiceOccluders();
+                this.closeDeckMenu();
+                this.resetGuardTransferMenu();
+                document.getElementById('build-menu').style.display = 'none';
+                document.getElementById('branch-menu').style.display = 'none';
+                document.getElementById('wizard-menu').style.display = 'none';
+                document.getElementById('taunt-layer').style.display = 'none';
+                document.getElementById('battle-result').style.display = 'none';
+                document.getElementById('battle-result').className = '';
+                document.getElementById('battle-result').innerHTML = '';
+                document.getElementById('battle-ui').style.display = 'none';
+                document.getElementById('battle-ui').innerHTML = '';
+                document.getElementById('btn-end').style.display = 'none';
+                this.wizardTradeResolver = null;
+                this.branchChoiceResolver = null;
+                this.battleCommandResolver = null;
+                this.battleContext = null;
+                this.battleSupportCards = [];
+                this.battleSupportSummary = [];
+                this.battleHand = [];
+                this.setBattlePhase(BattlePhase.NONE);
+                this.setActionConsumed(false);
+                this.currentPlayerIndex = 0;
+
+                if (this.activeDiceMesh) {
+                    this.scene.remove(this.activeDiceMesh);
+                    this.activeDiceMesh = null;
+                }
+
+                if (this.battleSnapshot) {
+                    await this.exitBattleScene();
+                }
+
+                this.transitionTo(TurnState.IDLE);
+                const player = this.getCurrentPlayer();
+                if (player) {
+                    player.hp = player.maxHp;
+                    this.teleportPlayerToNode(player, this.nodes[player.nodeIndex] || this.nodes[0]);
+                }
+            },
+
+            findDebugNodeWithMonster() {
+                return this.nodes.find(node => node.slots.some(slot => slot.monster))
+                    || this.nodes.find(node => node.slots.length > 0)
+                    || this.nodes[0];
+            },
+
+            findDebugNodeForFacility() {
+                return this.nodes.find(node => node.slots.some(slot => !slot.monster))
+                    || this.nodes.find(node => node.slots.length > 0)
+                    || this.nodes[0];
+            },
+
+            async runDebugScene(scene) {
+                if (this.debugPreviewRunning) return;
+                this.debugPreviewRunning = true;
+                this.renderDebugPanel(`正在准备 ${this.getDebugSceneLabel(scene)}。`);
+                try {
+                    await this.resetDebugSceneState();
+                    if (scene === 'dice') {
+                        this.renderDebugPanel('准备投骰场景。');
+                        this.rollDice();
+                        return;
+                    }
+                    if (scene === 'battle-monster') {
+                        await this.runMonsterBattleDebugPreview();
+                        return;
+                    }
+                    if (scene === 'battle-facility') {
+                        await this.runFacilityBattleDebugPreview();
+                        return;
+                    }
+                    if (scene === 'result-victory') {
+                        await this.runBattleResultDebugPreview(true);
+                        return;
+                    }
+                    if (scene === 'result-defeat') {
+                        await this.runBattleResultDebugPreview(false);
+                        return;
+                    }
+                    this.runMapDebugPreview();
+                } finally {
+                    this.debugPreviewRunning = false;
+                }
+            },
+
+            runMapDebugPreview() {
+                const player = this.getCurrentPlayer();
+                const node = this.findDebugNodeForFacility();
+                this.teleportPlayerToNode(player, node);
+                this.renderDebugPanel('地图已就位，可手动 hover 或截图。');
+            },
+
+            async runMonsterBattleDebugPreview() {
+                const player = this.getCurrentPlayer();
+                const node = this.findDebugNodeWithMonster();
+                const slot = node.slots.find(candidate => candidate.monster) || node.slots[0];
+                if (!slot?.monster) {
+                    this.renderDebugPanel('没有找到野怪地块。');
+                    return;
+                }
+                this.teleportPlayerToNode(player, node);
+                player.hp = player.maxHp;
+                await this.resolveBattleShell({
+                    attacker: player,
+                    enemy: slot.monster,
+                    sourceSlot: slot,
+                    kind: 'monster'
+                });
+                this.renderDebugPanel('野怪战预览结束。');
+            },
+
+            async runFacilityBattleDebugPreview() {
+                const player = this.getCurrentPlayer();
+                const node = this.findDebugNodeForFacility();
+                const slot = node.slots.find(candidate => !candidate.monster) || node.slots[0];
+                if (!slot) {
+                    this.renderDebugPanel('没有找到可布置建筑的地块。');
+                    return;
+                }
+                this.teleportPlayerToNode(player, node);
+                this.populateDebugEnemyFacility(slot);
+                const enemy = this.createBuildingBattleEnemy(slot);
+                player.hp = player.maxHp;
+                await this.resolveBattleShell({
+                    attacker: player,
+                    enemy,
+                    sourceSlot: slot,
+                    kind: 'facility'
+                });
+                this.renderDebugPanel('建筑战预览结束。');
+            },
+
+            async runBattleResultDebugPreview(victory) {
+                const player = this.getCurrentPlayer();
+                const node = this.findDebugNodeForFacility();
+                const slot = node.slots.find(candidate => !candidate.monster) || node.slots[0];
+                if (!slot) {
+                    this.renderDebugPanel('没有找到可布置建筑的地块。');
+                    return;
+                }
+                this.teleportPlayerToNode(player, node);
+                this.populateDebugEnemyFacility(slot);
+                const enemy = this.createBuildingBattleEnemy(slot);
+                const enemyState = this.createEnemyBattleState(enemy, 'facility');
+                await this.enterBattleScene(player, enemy);
+                this.updateBattleStatus(player, enemyState, 0);
+                await this.showBattleResult(victory, false, player, enemyState);
+                this.renderDebugPanel(victory ? '胜利结算预览结束。' : '失败结算预览结束。');
             },
 
             // 构建带有描边效果的立方体
@@ -1742,6 +2074,77 @@
             getFacilityName(slotOrType) {
                 const type = typeof slotOrType === 'string' ? slotOrType : slotOrType.type;
                 return this.getFacilityConfig(type).name;
+            },
+
+            createFacilityMesh(type) {
+                const config = this.getFacilityConfig(type);
+                let geom = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+                if (type === 'TRAP') geom = new THREE.CylinderGeometry(0.5, 0.8, 0.5, 8);
+                if (type === 'GUARD') geom = new THREE.BoxGeometry(0.8, 1.2, 0.8);
+                if (type === 'INCOME') geom = new THREE.OctahedronGeometry(0.6);
+                if (type === 'HEAL') geom = new THREE.CylinderGeometry(0.7, 0.7, 0.42, 16);
+                if (type === 'TRAINING') geom = new THREE.ConeGeometry(0.72, 1.05, 4);
+                if (type === 'BARRACKS') geom = new THREE.BoxGeometry(1.0, 0.9, 0.8);
+                if (type === 'COMMAND') geom = new THREE.CylinderGeometry(0.48, 0.82, 1.15, 5);
+                if (type === 'FORTRESS') geom = new THREE.BoxGeometry(1.08, 1.0, 1.08);
+                if (type === 'WORKSHOP') geom = new THREE.CylinderGeometry(0.78, 0.9, 0.7, 6);
+
+                const mesh = new THREE.Mesh(geom, new THREE.MeshToonMaterial({ color: config.color }));
+                const outline = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide }));
+                outline.scale.set(1.1, 1.1, 1.1);
+                mesh.add(outline);
+                return mesh;
+            },
+
+            getFacilityDefenseAtLevel(type, level = 1) {
+                const config = this.getFacilityConfig(type);
+                let defense = config.baseDefense;
+                for (let currentLevel = 1; currentLevel < level; currentLevel++) {
+                    defense += type === 'FORTRESS'
+                        ? 28 + currentLevel * 12
+                        : (config.allowsGuards ? 12 + currentLevel * 4 : 20 + currentLevel * 9);
+                }
+                return defense;
+            },
+
+            placeFacilityForOwner(slot, owner, type, level = 1, defense = null) {
+                if (!slot) return;
+                if (slot.monster) this.clearMonster(slot);
+                if (slot.type !== 'EMPTY') this.clearFacility(slot);
+                const config = this.getFacilityConfig(type);
+                slot.type = type;
+                slot.owner = owner;
+                slot.level = level;
+                slot.maxLevel = config.maxLevel || this.maxFacilityLevel;
+                slot.defense = defense ?? this.getFacilityDefenseAtLevel(type, level);
+                slot.guardSlots = config.allowsGuards ? config.guardSlots : 0;
+                slot.guards = [];
+                slot.facilityMesh = this.createFacilityMesh(type);
+                slot.facilityMesh.position.set(slot.x, 0.6, slot.z);
+                this.scene.add(slot.facilityMesh);
+                this.updateFacilityVisual(slot);
+            },
+
+            populateDebugEnemyFacility(slot) {
+                const enemyOwner = this.players[1];
+                this.placeFacilityForOwner(slot, enemyOwner, 'COMMAND', 3);
+                const shield = this.createGuard(slot, 'SHIELD');
+                const spear = this.createGuard(slot, 'SPEAR');
+                shield.training = this.getGuardTrainingProfile('WORKSHOP', shield.key);
+                spear.training = this.getGuardTrainingProfile('TRAINING', spear.key);
+                shield.veterancy = 2;
+                shield.exp = 7;
+                shield.maxHp += 6;
+                shield.hp = shield.maxHp;
+                shield.atk += 2;
+                spear.veterancy = 1;
+                spear.exp = 3;
+                spear.maxHp += 3;
+                spear.hp = spear.maxHp;
+                spear.atk += 1;
+                slot.guards = [shield, spear];
+                slot.defense += 20;
+                this.updateFacilityVisual(slot);
             },
 
             getUpgradeCost(slot) {
@@ -3403,6 +3806,7 @@
                 }
                 const diceGeom = new THREE.BoxGeometry(1.5, 1.5, 1.5);
                 const dice = new THREE.Mesh(diceGeom, materials);
+                this.activeDiceMesh = dice;
                 
                 dice.position.copy(p.meshGroup.position);
                 dice.position.y += 0.9;
@@ -3431,7 +3835,10 @@
                         new TWEEN.Tween(dice.position)
                             .to({ y: 1.35 }, 520)
                             .easing(TWEEN.Easing.Bounce.Out)
-                            .onComplete(() => this.setDicePhase(DicePhase.SETTLE))
+                            .onComplete(async () => {
+                                this.setDicePhase(DicePhase.SETTLE);
+                                await this.maybePauseDebug('dice-settle');
+                            })
                             .start();
                     })
                     .start();
@@ -3450,15 +3857,17 @@
                 new TWEEN.Tween(dice.rotation)
                     .to({ x: Math.PI*5, y: Math.PI*6, z: Math.PI*4 }, 950)
                     .easing(TWEEN.Easing.Cubic.Out)
-                    .onComplete(() => {
+                    .onComplete(async () => {
                         // BoxGeometry material index 2 is the top face; repaint it to the final roll.
                         dice.material[2].map = createDiceTexture(result);
                         dice.material[2].map.needsUpdate = true;
                         dice.material[2].needsUpdate = true;
                         dice.rotation.set(0, 0, 0);
+                        await this.maybePauseDebug('dice-finish');
                         
                         setTimeout(() => {
                             this.scene.remove(dice);
+                            this.activeDiceMesh = null;
                             this.restoreDiceOccluders();
                             this.setDicePhase(DicePhase.DONE);
                             this.transitionTo(TurnState.MOVING);
@@ -5024,6 +5433,7 @@
 
                 this.focusBattleCamera(new THREE.Vector3(4.9, 0.4, 5.0), 1.25, 520);
                 await this.wait(700);
+                await this.maybePauseDebug('battle-enter');
             },
 
             focusBattleCamera(target, zoom = 1.35, duration = 360) {
@@ -5193,6 +5603,7 @@
                 await this.focusBattleCamera(enemyFocus, 1.78, 340);
                 await this.typeBattleText(enemyBox, lines.enemy);
                 await this.wait(420);
+                await this.maybePauseDebug('taunt');
                 await this.focusBattleCamera(new THREE.Vector3(4.9, 0.4, 5.0), 1.25, 300);
                 layer.style.display = 'none';
             },
@@ -5234,6 +5645,7 @@
                 this.renderBattleCommandUi(attacker, 'commands');
                 return new Promise(resolve => {
                     this.battleCommandResolver = resolve;
+                    this.maybePauseDebug('commands');
                 });
             },
 
@@ -5873,9 +6285,11 @@
                     <span class="battle-result-title">${this.escapeHtml(payload.title)}</span>
                     <span class="battle-result-sub">${this.escapeHtml(payload.sub)}</span>
                 `;
+                result.style.display = 'block';
                 void result.offsetWidth;
                 result.className = `${payload.className} show`;
 
+                await this.maybePauseDebug('result');
                 await this.wait(1180);
                 result.className = '';
                 result.style.display = 'none';
@@ -6362,13 +6776,7 @@
 
                 if (player.gold >= cost) {
                     player.gold -= cost;
-                    slot.type = type;
-                    slot.owner = player;
-                    slot.level = 1;
-                    slot.maxLevel = config.maxLevel || this.maxFacilityLevel;
-                    slot.defense = config.baseDefense;
-                    slot.guardSlots = config.allowsGuards ? config.guardSlots : 0;
-                    slot.guards = [];
+                    this.placeFacilityForOwner(slot, player, type, 1, config.baseDefense);
                     
                     // 在地块上生成 3D 建筑模型
                     let fColor = 0xffffff, geom = null;
@@ -6389,15 +6797,11 @@
                     outline.scale.set(1.1, 1.1, 1.1);
                     mesh.add(outline);
 
-                    mesh.position.set(slot.x, 0.6, slot.z);
-                    this.scene.add(mesh);
-                    slot.facilityMesh = mesh;
-                    this.updateFacilityVisual(slot);
 
                     this.log(`花费 ${cost}G 建造了 ${this.getFacilityName(type)}！`);
                     
                     // 特效：小跳一下
-                    new TWEEN.Tween(mesh.position).to({y: 1.5}, 200).yoyo(true).repeat(1).start();
+                    new TWEEN.Tween(slot.facilityMesh.position).to({y: 1.5}, 200).yoyo(true).repeat(1).start();
                 } else {
                     this.log("金币不足，无法建造。");
                     return;

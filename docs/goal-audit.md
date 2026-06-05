@@ -4,6 +4,8 @@ Updated: 2026-06-05
 
 This file tracks the original 20-point goal against the current codebase so we can stop guessing and close the remaining gaps deliberately.
 
+There is now a repeatable debug/runtime-proof harness in `index.html` plus captured scene references in `docs/runtime-proof/README.md`, so visual acceptance no longer depends on replaying a full match by hand every time.
+
 ## Status legend
 
 - `Complete`: implemented in code with clear local evidence
@@ -82,11 +84,12 @@ This file tracks the original 20-point goal against the current codebase so we c
 ## What is still not truly finished
 
 1. Strong runtime verification is still missing for the most visual goals: `6`, `11`, `12`, `13`, `15`, `16`, `20`.
+   We now at least have targeted capture hooks and first-pass screenshots for `6`, `11`, `12`, `13`, and `20`, but they still need final acceptance judgment.
 2. Goal `17` still needs more content depth before it matches the original ambition.
 3. We still need one final requirement-by-requirement acceptance pass that proves the whole 20-point goal in the running app, not just in source code.
 
 ## Best next steps
 
-1. Run a stronger browser validation pass for map readability, dice occlusion, battle transition framing, and taunt/result UI.
+1. Keep using the new debug scenes to extend proof coverage, especially for tile bounce / staggered map intro (`15`, `16`) and any remaining battle framing edge cases.
 2. Continue deepening goal `17`, prioritizing guard/building/siege identity over unrelated polish.
 3. Convert this audit into a final acceptance checklist once runtime proof exists.
