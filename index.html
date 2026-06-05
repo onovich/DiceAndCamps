@@ -1277,7 +1277,9 @@
                         hp: 50, maxHp: 50, atk: 10, gold: 200, exp: 0, level: 1,
                         deck: ['STRIKE', 'STRIKE', 'STRIKE', 'GUARD_UP', 'GUARD_UP', 'FIREBALL'],
                         drawPile: [],
-                        discardPile: []
+                        discardPile: [],
+                        preparedBattleCards: [],
+                        preparedBattleSummary: []
                     });
                 }
                 this.reflowAllCharacterStances(false);
@@ -1799,6 +1801,26 @@
                 return support.summary.length > 0 ? support.summary.join(' / ') : '当前没有同路块战术支援';
             },
 
+            queuePreparedBattleCard(player, cardId, sourceLabel = '战前筹备') {
+                if (!player || !cardId || !this.cardLibrary[cardId]) return false;
+                if (!player.preparedBattleCards) player.preparedBattleCards = [];
+                if (!player.preparedBattleSummary) player.preparedBattleSummary = [];
+                if (player.preparedBattleCards.length >= 4) {
+                    player.preparedBattleCards.shift();
+                    player.preparedBattleSummary.shift();
+                }
+                player.preparedBattleCards.push(cardId);
+                player.preparedBattleSummary.push(`${sourceLabel}:${this.cardLibrary[cardId].name}`);
+                return true;
+            },
+
+            getPreparedBattleSummaryText(player) {
+                if (!player?.preparedBattleSummary || player.preparedBattleSummary.length === 0) {
+                    return '暂无战前筹备牌';
+                }
+                return player.preparedBattleSummary.join(' / ');
+            },
+
             resetGuardTransferMenu() {
                 this.guardTransferSource = null;
                 const transferOptions = document.getElementById('guard-transfer-options');
@@ -2148,6 +2170,7 @@
                     ${this.infoRow('ATK', player.atk)}
                     ${this.infoRow('金币', `${player.gold}G`)}
                     ${this.infoRow('牌库', `${player.deck.length} 张`)}
+                    ${this.infoRow('筹备', `${player.preparedBattleCards?.length || 0} 张`)}
                 `;
             },
 
@@ -2539,6 +2562,9 @@
                         guard.atk += 1;
                         guard.hp = Math.min(guard.maxHp, guard.hp + 4 + slot.level);
                     });
+                    if (scoutDrill.length > 0 && this.queuePreparedBattleCard(player, 'AMBUSH', '陷阱阵地')) {
+                        this.createFloatingText('+伏击牌', slot.mesh.position, "#a55eea");
+                    }
                     this.updateFacilityVisual(slot);
                     this.log(`路过自己的陷阱阵地，机关重置，防御 +${resetDefense}${scoutDrill.length > 0 ? `，并让 ${scoutDrill.length} 名斥候守军完成伏击演练` : ''}。`);
                     this.createFloatingText(`伏击就绪 +${resetDefense}`, slot.mesh.position, "#a55eea");
@@ -2561,6 +2587,9 @@
                         this.createFloatingText(`重排防线 +${4 + slot.level}`, slot.mesh.position, "#4b7bec");
                     } else {
                         player.atk += 1;
+                        if (this.queuePreparedBattleCard(player, 'WAR_BANNER', '指挥所')) {
+                            this.createFloatingText('+战旗牌', slot.mesh.position, "#4b7bec");
+                        }
                         this.updateGuardMarkers(slot);
                         this.log(`指挥所吹响集结号，让同路块守军完成整队：${guards.length} 名守军恢复 ${guardHeal} HP 并获得 +1 ATK，你也获得了 +1 ATK。`);
                         this.createFloatingText(`集结号 x${guards.length}`, slot.mesh.position, "#4b7bec");
@@ -2603,6 +2632,9 @@
                     slot.guards.forEach(guard => {
                         guard.hp = Math.min(guard.maxHp, guard.hp + 5 + slot.level * 2);
                     });
+                    if (slot.level >= 2 && this.queuePreparedBattleCard(player, 'FIELD_DRESS', '治疗营地')) {
+                        this.createFloatingText('+包扎牌', slot.mesh.position, "#2ed573");
+                    }
                     this.log(`治疗营地恢复 ${actual} HP。`);
                     this.createFloatingText(`+${actual}HP`, player.meshGroup.position, "#2ed573");
                 } else if (slot.type === 'TRAINING') {
@@ -2611,6 +2643,9 @@
                     slot.guards.forEach(guard => {
                         guard.atk += 1;
                     });
+                    if (this.queuePreparedBattleCard(player, 'PIKE_CHARGE', '训练营')) {
+                        this.createFloatingText('+突击牌', slot.mesh.position, "#ffb142");
+                    }
                     this.log(`训练营鼓舞士气，ATK +${atkGain}。`);
                     this.createFloatingText(`ATK +${atkGain}`, player.meshGroup.position, "#ffb142");
                 } else if (slot.type === 'BARRACKS') {
@@ -2640,6 +2675,9 @@
                         this.log(`兵营完成整训，${slot.guards.length} 名守军恢复 ${guardHeal} HP 并获得 +1 ATK。`);
                         this.createFloatingText(`整训 x${Math.max(1, trained)}`, slot.mesh.position, "#ff7f50");
                     }
+                    if (trained > 0 && this.queuePreparedBattleCard(player, 'TOWER_GUARD', '兵营')) {
+                        this.createFloatingText('+掩护牌', slot.mesh.position, "#ff7f50");
+                    }
                 } else if (slot.type === 'WORKSHOP') {
                     const selfFortify = 4 + slot.level * 2;
                     slot.defense += selfFortify;
@@ -2648,6 +2686,9 @@
                         other.defense += 2 + slot.level;
                         this.updateFacilityVisual(other);
                     });
+                    if (slot.level >= 2 && this.queuePreparedBattleCard(player, 'SIEGE_KIT', '城防工坊')) {
+                        this.createFloatingText('+工包牌', slot.mesh.position, "#747d8c");
+                    }
                     this.updateFacilityVisual(slot);
                     this.log(`城防工坊加固了城墙，本体防御 +${selfFortify}${others.length > 0 ? `，并强化同路口 ${others.length} 座友方建筑` : ''}。`);
                     this.createFloatingText(`墙体加固 +${selfFortify}`, slot.mesh.position, "#747d8c");
@@ -3139,7 +3180,7 @@
                 // 阶段二：弹出菜单
                 if (slot.type === 'EMPTY' && slot.monster) {
                     this.setBuildMenuButtons('monster');
-                    document.getElementById('build-desc').innerText = `${slot.monster.name} 占着这块地。打败它后才能在这里建造。胜利不消耗行动，失败会消耗行动。本路块支援：${this.getBattleSupportSummaryText(player)}。`;
+                    document.getElementById('build-desc').innerText = `${slot.monster.name} 占着这块地。打败它后才能在这里建造。胜利不消耗行动，失败会消耗行动。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。`;
                 } else if (slot.type === 'EMPTY') {
                     this.setBuildMenuButtons('build');
                     document.getElementById('build-desc').innerText = "选择要建造的设施。兵营偏向练兵和补守军，指挥所负责整队联动，堡垒与城防工坊则更偏向堆墙和抬高攻城难度。建造会消耗当前行动。";
@@ -3170,7 +3211,7 @@
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
                 
@@ -3758,11 +3799,15 @@
 
             prepareBattleDeck(player, supportPackage = null) {
                 const supportCards = supportPackage?.cardIds || [];
-                this.battleSupportCards = [...supportCards];
-                this.battleSupportSummary = [...(supportPackage?.summary || [])];
-                player.drawPile = this.shuffleCards([...(player.deck || []), ...supportCards]);
+                const preparedCards = [...(player.preparedBattleCards || [])];
+                const preparedSummary = [...(player.preparedBattleSummary || [])];
+                this.battleSupportCards = [...preparedCards, ...supportCards];
+                this.battleSupportSummary = [...preparedSummary, ...(supportPackage?.summary || [])];
+                player.drawPile = this.shuffleCards([...(player.deck || []), ...preparedCards, ...supportCards]);
                 player.discardPile = [];
                 this.battleHand = [];
+                player.preparedBattleCards = [];
+                player.preparedBattleSummary = [];
             },
 
             shuffleCards(cards) {
