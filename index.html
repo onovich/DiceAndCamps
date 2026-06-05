@@ -2799,6 +2799,9 @@
                     if (scoutDrill.length > 0 && this.queuePreparedBattleCard(player, 'AMBUSH', '陷阱阵地')) {
                         this.createFloatingText('+伏击牌', slot.mesh.position, "#a55eea");
                     }
+                    if (slot.level >= slot.maxLevel && scoutDrill.length > 0) {
+                        this.refineDeckCard(player, ['STRIKE', 'AMBUSH'], 'AMBUSH', '陷阱阵地');
+                    }
                     this.updateFacilityVisual(slot);
                     this.log(`路过自己的陷阱阵地，机关重置，防御 +${resetDefense}${scoutDrill.length > 0 ? `，并让 ${scoutDrill.length} 名斥候守军完成伏击演练` : ''}。`);
                     this.createFloatingText(`伏击就绪 +${resetDefense}`, slot.mesh.position, "#a55eea");
@@ -2836,6 +2839,12 @@
                     const playerHeal = 4 + slot.level * 3;
                     slot.defense += fortify;
                     player.hp = Math.min(player.maxHp, player.hp + playerHeal);
+                    if (slot.level >= 2 && this.queuePreparedBattleCard(player, 'TOWER_GUARD', '堡垒')) {
+                        this.createFloatingText('+壁垒牌', slot.mesh.position, "#8c564b");
+                    }
+                    if (slot.level >= slot.maxLevel) {
+                        this.refineDeckCard(player, ['GUARD_UP', 'TOWER_GUARD'], 'TOWER_GUARD', '堡垒');
+                    }
                     this.updateFacilityVisual(slot);
                     this.log(`路过自己的堡垒，厚墙再度加固，防御 +${fortify}，同时为部队提供了 ${playerHeal} 点整补。`);
                     this.createFloatingText(`堡墙 +${fortify}`, slot.mesh.position, "#8c564b");
@@ -2847,6 +2856,12 @@
                         guard.maxHp += slot.level === slot.maxLevel ? 1 : 0;
                         guard.hp = Math.min(guard.maxHp, guard.hp + hpGain);
                         guard.atk += atkGain;
+                        if (slot.level >= 2 && this.queuePreparedBattleCard(player, 'TOWER_GUARD', '守卫哨站')) {
+                            this.createFloatingText('+哨站牌', slot.mesh.position, "#70a1ff");
+                        }
+                        if (slot.level >= slot.maxLevel) {
+                            this.refineDeckCard(player, ['GUARD_UP', 'STRIKE'], 'TOWER_GUARD', '守卫哨站');
+                        }
                         this.log(`路过自己的守卫哨站，${guard.name} 完成整备，HP +${hpGain}${atkGain > 0 ? ` / ATK +${atkGain}` : ''}`);
                         this.createFloatingText(`整备 ${guard.name}`, slot.mesh.position, "#70a1ff");
                         this.updateGuardMarkers(slot);
@@ -2860,6 +2875,12 @@
                     const income = 40 + slot.level * 25 + slot.guards.length * 10;
                     this.log(`路过自己的金矿，收益 +${income}G`);
                     player.gold += income;
+                    if (slot.level >= 2 && this.queuePreparedBattleCard(player, 'SUPPLY_LINE', '金矿')) {
+                        this.createFloatingText('+补给牌', slot.mesh.position, "#eccc68");
+                    }
+                    if (slot.level >= slot.maxLevel) {
+                        this.refineDeckCard(player, ['MEND', 'RALLY'], 'SUPPLY_LINE', '金矿');
+                    }
                     this.createFloatingText(`+${income}G`, slot.mesh.position, "#eccc68");
                 } else if (slot.type === 'HEAL') {
                     const heal = 14 + slot.level * 12 + slot.guards.length * 4;
