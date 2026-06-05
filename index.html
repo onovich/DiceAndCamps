@@ -1802,8 +1802,80 @@
                     maxHp: archetype.maxHp + slot.level * 5,
                     hp: archetype.maxHp + slot.level * 5,
                     atk: archetype.atk + slot.level * 2,
-                    color: archetype.color
+                    color: archetype.color,
+                    veterancy: 0,
+                    exp: 0
                 };
+            },
+
+            getGuardVeterancyLabel(guardOrRank) {
+                const rank = typeof guardOrRank === 'number'
+                    ? guardOrRank
+                    : (guardOrRank?.veterancy || 0);
+                return ['新兵', '老兵', '精锐', '传奇'][Math.max(0, Math.min(3, rank))] || '新兵';
+            },
+
+            getGuardNextVeterancyExp(rank = 0) {
+                return [3, 7, 12][rank] ?? null;
+            },
+
+            grantGuardExp(guard, amount = 1) {
+                if (!guard || amount <= 0) {
+                    return { leveledUp: false, beforeRank: guard?.veterancy || 0, afterRank: guard?.veterancy || 0 };
+                }
+
+                if (guard.veterancy === undefined) guard.veterancy = 0;
+                if (guard.exp === undefined) guard.exp = 0;
+
+                const beforeRank = guard.veterancy;
+                guard.exp += amount;
+
+                while (guard.veterancy < 3) {
+                    const nextExp = this.getGuardNextVeterancyExp(guard.veterancy);
+                    if (nextExp === null || guard.exp < nextExp) break;
+                    guard.veterancy += 1;
+                    const hpGain = 3 + guard.veterancy;
+                    const atkGain = 1 + Math.floor(guard.veterancy / 2);
+                    guard.maxHp += hpGain;
+                    guard.hp = Math.min(guard.maxHp, guard.hp + hpGain + 2);
+                    guard.atk += atkGain;
+                }
+
+                return {
+                    leveledUp: guard.veterancy > beforeRank,
+                    beforeRank,
+                    afterRank: guard.veterancy
+                };
+            },
+
+            grantSlotGuardExp(slot, amount = 1, sourceLabel = '历练') {
+                if (!slot?.guards?.length) return [];
+                const promotions = [];
+                slot.guards.forEach(guard => {
+                    const result = this.grantGuardExp(guard, amount);
+                    if (result.leveledUp) {
+                        promotions.push(`${guard.name} 晋升为${this.getGuardVeterancyLabel(guard)}`);
+                    }
+                });
+                if (promotions.length > 0) {
+                    this.createFloatingText(`+${sourceLabel}`, slot.mesh.position, "#2ed573");
+                    this.log(`${this.getFacilityName(slot)} 的守军完成${sourceLabel}：${promotions.join('，')}。`);
+                    this.updateGuardMarkers(slot);
+                }
+                return promotions;
+            },
+
+            grantNodeGuardBattleExp(player, amount = 1, sourceLabel = '战斗历练') {
+                const supportSlots = this.getNodeOwnedFacilities(player);
+                if (supportSlots.length === 0) return;
+                let anyPromotion = false;
+                supportSlots.forEach(slot => {
+                    const promotions = this.grantSlotGuardExp(slot, amount, sourceLabel);
+                    if (promotions.length > 0) anyPromotion = true;
+                });
+                if (!anyPromotion) {
+                    this.log(`同路守军通过${sourceLabel}获得了经验。`);
+                }
             },
 
             getGuardPower(slot) {
@@ -1813,7 +1885,7 @@
             getGuardSummary(slot, joiner = ' / ') {
                 if (!slot.guards || slot.guards.length === 0) return '无守军';
                 return slot.guards
-                    .map(guard => `${guard.name} HP${guard.hp}/${guard.maxHp} ATK${guard.atk}`)
+                    .map(guard => `${guard.name}[${this.getGuardVeterancyLabel(guard)}] HP${guard.hp}/${guard.maxHp} ATK${guard.atk} EXP${guard.exp ?? 0}`)
                     .join(joiner);
             },
 
@@ -1834,6 +1906,19 @@
                 if (counts.SPEAR > 0) traits.push(`枪兵${counts.SPEAR} 强化反击`);
                 if (counts.SCOUT > 0) traits.push(`斥候${counts.SCOUT} 提高闪避`);
                 return traits.length > 0 ? traits.join(' / ') : '暂无守军特性';
+            },
+
+            getGuardVeterancySummary(slot) {
+                if (!slot?.guards?.length) return '暂无历练';
+                const counts = [0, 0, 0, 0];
+                slot.guards.forEach(guard => {
+                    const rank = Math.max(0, Math.min(3, guard.veterancy || 0));
+                    counts[rank] += 1;
+                });
+                return counts
+                    .map((count, rank) => count > 0 ? `${this.getGuardVeterancyLabel(rank)}x${count}` : null)
+                    .filter(Boolean)
+                    .join(' / ');
             },
 
             getGuardDoctrinePackage(roleCounts, sourceLabel = '战术编成') {
@@ -2465,7 +2550,7 @@
                 `;
             },
 
-            buildFacilityInfo(slot) {
+            buildFacilityInfoLegacy(slot) {
                 const ownedByPlayer = slot.owner?.isPlayer;
                 const tag = ownedByPlayer ? '我方建筑' : '敌方建筑';
                 const capacity = this.getGuardCapacity(slot);
@@ -2515,6 +2600,7 @@
                     ${this.infoRow('守军', guardText)}
                     ${this.infoRow('驻军编成', this.getGuardSummary(slot, ' | '))}
                     ${this.infoRow('守军特性', this.getGuardTraitSummary(slot))}
+                    ${this.infoRow('守军历练', this.getGuardVeterancySummary(slot))}
                     ${this.infoRow('战术编成', doctrineText)}
                     ${this.infoRow('推荐补员', this.getGuardArchetype(null, slot)?.name || '通用守军')}
                     ${this.infoRow('防守类型', preview.battlePlan || preview.label)}
@@ -2897,6 +2983,9 @@
                     this.updateFacilityVisual(slot);
                     this.log(`路过自己的陷阱阵地，机关重置，防御 +${resetDefense}${scoutDrill.length > 0 ? `，并让 ${scoutDrill.length} 名斥候守军完成伏击演练` : ''}。`);
                     this.createFloatingText(`伏击就绪 +${resetDefense}`, slot.mesh.position, "#a55eea");
+                    if (scoutDrill.length > 0) {
+                        this.grantSlotGuardExp(slot, 1, '伏击演练');
+                    }
                 } else if (slot.type === 'COMMAND') {
                     const owned = this.getNodeOwnedFacilities(player);
                     const guards = owned.flatMap(other => other.guards || []);
@@ -2926,6 +3015,7 @@
                         this.log(`指挥所吹响集结号，让同路块守军完成整队：${guards.length} 名守军恢复 ${guardHeal} HP 并获得 +1 ATK，你也获得了 +1 ATK。`);
                         this.createFloatingText(`集结号 x${guards.length}`, slot.mesh.position, "#4b7bec");
                     }
+                    owned.forEach(other => this.grantSlotGuardExp(other, 1, '整队'));
                 } else if (slot.type === 'FORTRESS') {
                     const fortify = 6 + slot.level * 4;
                     const playerHeal = 4 + slot.level * 3;
@@ -2963,6 +3053,9 @@
                         this.log(`守卫哨站无人驻守，城墙临时加固，防御 +${defenseGain}`);
                         this.createFloatingText(`防御 +${defenseGain}`, slot.mesh.position, "#70a1ff");
                     }
+                    if (slot.guards.length > 0) {
+                        this.grantSlotGuardExp(slot, 1, '值守整备');
+                    }
                 } else if (slot.type === 'INCOME') {
                     const income = 40 + slot.level * 25 + slot.guards.length * 10;
                     this.log(`路过自己的金矿，收益 +${income}G`);
@@ -2990,6 +3083,7 @@
                     }
                     this.log(`治疗营地恢复 ${actual} HP。`);
                     this.createFloatingText(`+${actual}HP`, player.meshGroup.position, "#2ed573");
+                    this.grantSlotGuardExp(slot, 1, '战地疗养');
                 } else if (slot.type === 'TRAINING') {
                     const atkGain = 1 + Math.floor(slot.level / 2);
                     player.atk += atkGain;
@@ -3004,6 +3098,7 @@
                     }
                     this.log(`训练营鼓舞士气，ATK +${atkGain}。`);
                     this.createFloatingText(`ATK +${atkGain}`, player.meshGroup.position, "#ffb142");
+                    this.grantSlotGuardExp(slot, 2, '训练营操练');
                 } else if (slot.type === 'BARRACKS') {
                     const guardHeal = 7 + slot.level * 3;
                     let trained = 0;
@@ -3036,6 +3131,9 @@
                     }
                     if (slot.level >= slot.maxLevel && trained > 0) {
                         this.refineDeckCard(player, 'GUARD_UP', 'TOWER_GUARD', '兵营');
+                    }
+                    if (trained > 0) {
+                        this.grantSlotGuardExp(slot, 2, '兵营整训');
                     }
                 } else if (slot.type === 'WORKSHOP') {
                     const selfFortify = 4 + slot.level * 2;
@@ -3451,6 +3549,7 @@
                 } else if (slot.type === 'TRAINING') {
                     const atkGain = 1 + Math.floor(slot.level / 2);
                     slot.owner.atk += atkGain;
+                    this.grantSlotGuardExp(slot, 1, '敌方操练');
                     this.log(`敌方训练营强化了 ${slot.owner.name}，ATK +${atkGain}。`);
                     this.createFloatingText(`敌方ATK +${atkGain}`, slot.mesh.position, "#ffb142");
                 } else if (slot.type === 'BARRACKS') {
@@ -3477,6 +3576,9 @@
                         this.log(`敌方兵营整训了驻军，后续守军更难对付。`);
                         this.createFloatingText("敌方整训", slot.mesh.position, "#ff7f50");
                     }
+                    if (slot.guards.length > 0) {
+                        this.grantSlotGuardExp(slot, 2, '敌方整训');
+                    }
                 } else if (slot.type === 'COMMAND') {
                     const allied = this.getNodeOwnedFacilities(slot.owner);
                     const guards = allied.flatMap(other => other.guards || []);
@@ -3492,6 +3594,7 @@
                     slot.owner.atk += 1;
                     this.log(`敌方指挥所吹响了集结号，整编了同路块守军与防线。`);
                     this.createFloatingText("敌方集结", slot.mesh.position, "#4b7bec");
+                    allied.forEach(other => this.grantSlotGuardExp(other, 1, '敌方整队'));
                 } else if (slot.type === 'FORTRESS') {
                     const fortify = 7 + slot.level * 4;
                     const barrage = 4 + slot.level * 2;
@@ -3714,7 +3817,7 @@
                 });
             },
 
-            handleSlotClick(slot) {
+            handleSlotClickLegacy(slot) {
                 if (!this.activeNode.slots.includes(slot)) return;
                 
                 this.stopSlotHighlightOnly();
@@ -3911,6 +4014,7 @@
                     const rewardSource = { kind: 'monster', monster: { ...slot.monster } };
                     player.gold += slot.monster.gold;
                     this.gainExp(player, slot.monster.exp);
+                    this.grantNodeGuardBattleExp(player, 1, '怪物战');
                     this.clearMonster(slot);
                     this.log("野怪被赶走了，这块地现在可以建造。");
                     await this.offerBattleCardReward(player, rewardSource);
@@ -3946,6 +4050,7 @@
                     const rewardSource = { kind: 'facility', slot: { ...slot, guards: [...slot.guards] } };
                     player.gold += rewards.gold;
                     this.gainExp(player, rewards.exp);
+                    this.grantNodeGuardBattleExp(player, 2, '攻城战');
                     this.applyFacilitySiegeSpoils(player, slot);
                     this.clearFacility(slot);
                     this.createFloatingText("摧毁", slot.mesh.position, "#ff4757");
