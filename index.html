@@ -2190,6 +2190,52 @@
                 return parts.join(' / ');
             },
 
+            async triggerEnemyTrainingCombo(slot, player) {
+                const combo = this.getGuardTrainingComboPayload(slot);
+                if (!slot?.owner || combo.labels.length === 0) return;
+
+                const lines = [];
+                if (combo.passByDefenseGain > 0) {
+                    slot.defense += combo.passByDefenseGain;
+                    this.updateFacilityVisual(slot);
+                    lines.push(`加固防线 +${combo.passByDefenseGain}`);
+                    this.createFloatingText(`敌方联动固守 +${combo.passByDefenseGain}`, slot.mesh.position, "#70a1ff");
+                }
+                if (combo.passByHeal > 0) {
+                    const beforeHp = slot.owner.hp;
+                    slot.owner.hp = Math.min(slot.owner.maxHp, slot.owner.hp + combo.passByHeal);
+                    const healed = slot.owner.hp - beforeHp;
+                    if (healed > 0) {
+                        lines.push(`整补首领 ${healed} HP`);
+                        this.createFloatingText(`敌方联动整补 +${healed}`, slot.mesh.position, "#2ed573");
+                    }
+                    slot.guards.forEach(guard => {
+                        guard.hp = Math.min(guard.maxHp, guard.hp + Math.max(2, Math.floor(combo.passByHeal / 2)));
+                    });
+                }
+                if (combo.passByGold > 0) {
+                    const stolen = Math.min(player.gold, combo.passByGold);
+                    if (stolen > 0) {
+                        player.gold -= stolen;
+                        slot.owner.gold += stolen;
+                        lines.push(`截走补给 ${stolen}G`);
+                        this.createFloatingText(`敌方截补 -${stolen}G`, player.meshGroup.position, "#eccc68");
+                    }
+                }
+                if (combo.passByAtk > 0) {
+                    slot.owner.atk += combo.passByAtk;
+                    slot.guards.forEach(guard => {
+                        guard.atk += combo.passByAtk;
+                    });
+                    lines.push(`鼓舞守军 +${combo.passByAtk} ATK`);
+                    this.createFloatingText(`敌方联动鼓舞 +${combo.passByAtk}`, slot.mesh.position, "#ffb142");
+                }
+                if (lines.length > 0) {
+                    this.log(`敌方 ${this.getFacilityName(slot)} 的训练联动发动：${combo.labels.join(' / ')}，${lines.join('，')}。`);
+                }
+                await this.wait(180);
+            },
+
             getGuardSummary(slot, joiner = ' / ') {
                 if (!slot.guards || slot.guards.length === 0) return '无守军';
                 return slot.guards
@@ -4183,6 +4229,7 @@
                 }
 
                 if (slot.guards.length > 0) {
+                    await this.triggerEnemyTrainingCombo(slot, player);
                     await this.triggerGuardPressure(slot, player);
                 }
 
@@ -4660,6 +4707,8 @@
                     dodgeChance: preview.dodgeChance,
                     counterBonus: preview.counterBonus,
                     veterancy: preview.veterancy,
+                    training: preview.training,
+                    trainingCombo: this.getGuardTrainingComboPayload(slot),
                     roleCounts: preview.roleCounts,
                     hasGuard: preview.hasGuard,
                     phase: 'wall',
@@ -4692,6 +4741,8 @@
                         dodgeChance: enemy.dodgeChance || 0,
                         counterBonus: enemy.counterBonus || 0,
                         veterancy: enemy.veterancy || { totalVeterancy: 0, highestVeterancy: 0, veteranCount: 0, rankCounts: [0,0,0,0], byRole: { SHIELD: 0, SPEAR: 0, SCOUT: 0 } },
+                        training: enemy.training || { wallHpBonus: 0, wallArmorBonus: 0, guardArmorBonus: 0, dodgeBonus: 0, counterBonus: 0, phaseAtkBonus: 0 },
+                        trainingCombo: enemy.trainingCombo || this.getGuardTrainingComboPayload(enemy.slot || []),
                         roleCounts: enemy.roleCounts || { SHIELD: 0, SPEAR: 0, SCOUT: 0, total: 0 },
                         hasGuard: !!enemy.hasGuard
                     };
@@ -5448,7 +5499,26 @@
                     };
                 }
 
+                const combo = enemyState.trainingCombo || { labels: [], passByHeal: 0, passByAtk: 0, passByDefenseGain: 0, pressureDamage: 0, pressureGoldLoss: 0 };
+
                 if (enemyState.phase === 'wall') {
+                    if (combo.labels.some(label => label.startsWith('壁垒工事')) && round % 2 === 0) {
+                        return {
+                            type: 'fortify',
+                            name: '工事联修',
+                            label: '工坊与岗楼守军配合修补裂口，把破墙重新顶住',
+                            heal: 10 + combo.passByDefenseGain + Math.min(10, Math.floor(enemyState.wallMaxHp * 0.08))
+                        };
+                    }
+                    if (combo.labels.some(label => label.startsWith('暗线伏运')) && round % 2 === 1) {
+                        return {
+                            type: 'attack',
+                            name: '暗线爆索',
+                            label: '伏袭守军借补给暗线引爆机关，想在你脚边连环炸开',
+                            damageBonus: 3 + Math.min(4, combo.pressureGoldLoss || 0),
+                            blockPierce: 2
+                        };
+                    }
                     if (enemyState.facilityType === 'FORTRESS' && round % 2 === 0) {
                         return {
                             type: 'fortify',
@@ -5509,6 +5579,33 @@
                     };
                 }
 
+                if (combo.labels.some(label => label.startsWith('军令突击')) && round % 2 === 1) {
+                    return {
+                        type: 'buff',
+                        name: '军令合击',
+                        label: '指挥所与训练营的老兵联动整队，下一波反扑会更凶',
+                        atkGain: 3 + Math.max(1, combo.passByAtk || 0),
+                        heal: 4 + Math.min(6, combo.pressureDamage || 0)
+                    };
+                }
+                if (combo.labels.some(label => label.startsWith('后勤轮转')) && round % 2 === 0) {
+                    return {
+                        type: 'buff',
+                        name: '轮转补线',
+                        label: '兵营与治疗营地的轮转守军边补位边止血，阵线重新稳住了',
+                        atkGain: 1 + Math.max(1, combo.passByDefenseGain || 0),
+                        heal: 7 + Math.min(8, combo.passByHeal || 0)
+                    };
+                }
+                if (combo.labels.some(label => label.startsWith('暗线伏运')) && round % 3 === 0) {
+                    return {
+                        type: 'attack',
+                        name: '暗账突袭',
+                        label: '斥候借补给暗线切进来，想一口气撕开你的防御节奏',
+                        damageBonus: 4 + Math.min(4, combo.pressureGoldLoss || 0),
+                        blockPierce: 2
+                    };
+                }
                 if (enemyState.facilityType === 'COMMAND' && round % 2 === 1) {
                     return {
                         type: 'buff',
