@@ -1,0 +1,91 @@
+# DiceAndCamps Goal Audit
+
+Updated: 2026-06-05
+
+This file tracks the original 20-point goal against the current codebase so we can stop guessing and close the remaining gaps deliberately.
+
+## Status legend
+
+- `Complete`: implemented in code with clear local evidence
+- `Partial`: meaningful implementation exists, but the original target is not fully satisfied yet
+- `Needs runtime proof`: code exists, but the result still needs stronger visual / in-browser verification before we can call the goal finished
+
+## Requirement audit
+
+1. `Complete`  
+   Smaller character scale, shared-tile formations, and animated reflow are implemented in `index.html:1280`, `index.html:1302`, `index.html:1339`.
+
+2. `Complete`  
+   Build / upgrade / demolish / skip action phase exists, and max-level upgrade blocking is implemented in `index.html:4372`, `index.html:4482`, `index.html:4562`.
+
+3. `Complete`  
+   Enemy-adjacent facility events run before action phase in `index.html:2397`, `index.html:2413`, `index.html:2669`.
+
+4. `Complete`  
+   Owned-adjacent facility events run before enemy events via ordered landing flow in `index.html:1477`, `index.html:2397`, `index.html:2437`.
+
+5. `Complete`  
+   Turn-state flow is explicitly modeled and used across landing, branch choice, action phase, wizard phase, and battle in `index.html:793`, `index.html:1385`, `index.html:2397`, `index.html:4179`.
+
+6. `Needs runtime proof`  
+   Dice launch / roll / settle states, character-over-dice layering, and occluder fading exist in `index.html:800`, `index.html:2256`.  
+   Code is present, but visual proof is still weaker than it should be.
+
+7. `Complete`  
+   Camera follow / dragging / returning states exist in `index.html:804`, `index.html:819`, `index.html:2192`, `index.html:4518`.
+
+8. `Complete`  
+   Monsters block empty slots, can be challenged in the action phase, and only consume the turn on failure in `index.html:3088`, `index.html:4404`.
+
+9. `Complete`  
+   Combat entry points are monster fights and facility challenges; there is no player-meets-player battle path in `index.html:3088`, `index.html:3118`.
+
+10. `Complete`  
+    Guarded enemy facilities can be challenged, wall + guard layers are modeled, and victory destroys the building in `index.html:1717`, `index.html:3118`, `index.html:3153`, `index.html:4179`.
+
+11. `Needs runtime proof`  
+    Battle transitions, map object exit, battle floor entry, staged positioning, and snapshot restore exist in `index.html:3308`, `index.html:3372`, `index.html:3445`.  
+    Needs stronger in-browser confirmation for framing and smoothness.
+
+12. `Needs runtime proof`  
+    Turn-based battle commands and command UI exist in `index.html:3581`, `index.html:3669`, `index.html:4179`.  
+    Mechanically present, but still needs a final feel check.
+
+13. `Needs runtime proof`  
+    Battle result animation, celebration / defeat posing, and victory flourish exist in `index.html:4013`.  
+    Needs visual acceptance, not just code presence.
+
+14. `Complete`  
+    Enlarged orthogonal loop plus branches and wizard dead-end node are present in `index.html:900`, `index.html:963`.
+
+15. `Needs runtime proof`  
+    Floating road/land tiles and tile sink-bounce on landing are implemented in `index.html:1102`, `index.html:1117`, `index.html:1356`.
+
+16. `Needs runtime proof`  
+    Map intro and battle enter/exit use staggered sequencing in `index.html:1102`, `index.html:3372`, `index.html:3445`.
+
+17. `Partial`  
+    Building roster, guard recruitment / transfer, guard roles, and many owned/enemy events already exist in `index.html:750`, `index.html:2437`, `index.html:2669`, `index.html:3020`, `index.html:4471`.  
+    This turn also deepened facility-specific siege identity and battle plans in `index.html:1717`, `index.html:1764`, `index.html:3851`.  
+    Still not at the original “fully fleshed out content layer” target.
+
+18. `Complete`  
+    Empty-guard building battles correctly fall back to wall-only fights in `index.html:1717`, `index.html:3153`.
+
+19. `Complete`  
+    Most buildings allow guards, while special defense buildings deliberately trade guard slots for heavy wall scaling in `index.html:750`, `index.html:1589`.
+
+20. `Needs runtime proof`  
+    Taunt phase, close-up camera moves, comic-style taunt layer, and typewriter text exist in `index.html:3524`, `index.html:3549`.
+
+## What is still not truly finished
+
+1. Strong runtime verification is still missing for the most visual goals: `6`, `11`, `12`, `13`, `15`, `16`, `20`.
+2. Goal `17` still needs more content depth before it matches the original ambition.
+3. We still need one final requirement-by-requirement acceptance pass that proves the whole 20-point goal in the running app, not just in source code.
+
+## Best next steps
+
+1. Run a stronger browser validation pass for map readability, dice occlusion, battle transition framing, and taunt/result UI.
+2. Continue deepening goal `17`, prioritizing guard/building/siege identity over unrelated polish.
+3. Convert this audit into a final acceptance checklist once runtime proof exists.

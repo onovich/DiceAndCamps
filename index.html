@@ -1734,6 +1734,7 @@
                 const guardPhaseAtk = hasGuard ? 5 + slot.level * 2 + guardAtk + counterBonus + roleCounts.SCOUT + commandBonus : wallAtk;
                 const atk = hasGuard ? wallAtk : guardPhaseAtk;
                 const hp = fortifiedWallHp + guardHp;
+                const battlePlanDetails = this.getFacilityBattlePlan(slot, hasGuard);
                 const battlePlan = slot.type === 'FORTRESS'
                     ? '只有厚重堡墙，但会持续加固并压制来犯者'
                     : (slot.type === 'GUARD' && !hasGuard
@@ -1755,9 +1756,50 @@
                     roleCounts,
                     atk,
                     hp,
-                    battlePlan,
+                    battlePlan: battlePlanDetails,
                     label: hasGuard ? '守军+城墙' : '墙壁战'
                 };
+            },
+
+            getFacilityBattlePlan(slot, hasGuard) {
+                if (slot.type === 'FORTRESS') {
+                    return '只有厚重堡垒城墙，但会持续加固并压制来犯者';
+                }
+                if (slot.type === 'GUARD' && !hasGuard) {
+                    return '空哨站没有守军，只有更厚的墙体与岗楼火力';
+                }
+                if (slot.type === 'COMMAND' && hasGuard) {
+                    return '守军会在指挥所号令下整队反扑';
+                }
+                if (slot.type === 'BARRACKS') {
+                    return hasGuard
+                        ? '兵营守军会轮番整队并拖长消耗战'
+                        : '兵营会把营门与栅栏改成临时防线';
+                }
+                if (slot.type === 'WORKSHOP') {
+                    return '城防工坊会边战边修墙，拖慢攻城节奏';
+                }
+                if (slot.type === 'HEAL') {
+                    return hasGuard
+                        ? '治疗营地会在交战间隙急救守军'
+                        : '治疗营地会让墙后补给不断';
+                }
+                if (slot.type === 'TRAINING') {
+                    return hasGuard
+                        ? '训练营守军会越战越凶，用口令提速反扑'
+                        : '训练营会把防线当成演武位';
+                }
+                if (slot.type === 'INCOME') {
+                    return hasGuard
+                        ? '金矿会不断把资源送到守军手里'
+                        : '金矿会用资源堆高路障与墙材';
+                }
+                if (slot.type === 'TRAP') {
+                    return hasGuard
+                        ? '陷阱阵地会在守军掩护下连续触发机关'
+                        : '地面机关与绊索会先磨掉攻城者的气焰';
+                }
+                return hasGuard ? '守军躲在城墙后等待反击' : '只有城墙';
             },
 
             getFacilityBattleRewards(slot) {
@@ -3852,6 +3894,23 @@
                             heal: 8 + Math.min(10, Math.floor(enemyState.wallMaxHp * 0.08))
                         };
                     }
+                    if (enemyState.facilityType === 'TRAP' && round % 2 === 1) {
+                        return {
+                            type: 'attack',
+                            name: '绊索连雷',
+                            label: '陷阱阵地正在连续触发绊索与地雷',
+                            damageBonus: 2 + (enemyState.facilityLevel || 1),
+                            blockPierce: 1
+                        };
+                    }
+                    if (enemyState.facilityType === 'INCOME' && round % 3 === 0) {
+                        return {
+                            type: 'fortify',
+                            name: '雇工抢修',
+                            label: '金矿调来雇工把路障和墙面重新堆高',
+                            heal: 7 + Math.min(10, Math.floor(enemyState.wallMaxHp * 0.07))
+                        };
+                    }
                     if ((enemyState.roleCounts?.SHIELD || 0) > 0 && round % 3 === 1) {
                         return {
                             type: 'attack',
@@ -3886,6 +3945,42 @@
                         label: '兵营守军正在重整队形',
                         atkGain: 2 + Math.min(3, enemyState.roleCounts?.total || 0),
                         heal: 5 + (enemyState.roleCounts?.total || 0) * 2
+                    };
+                }
+                if (enemyState.facilityType === 'HEAL' && round % 2 === 0) {
+                    return {
+                        type: 'buff',
+                        name: '急救喷雾',
+                        label: '治疗营地守军正在一边止血一边稳住阵脚',
+                        atkGain: 1 + Math.min(2, enemyState.facilityLevel || 1),
+                        heal: 6 + (enemyState.roleCounts?.total || 0) * 2
+                    };
+                }
+                if (enemyState.facilityType === 'TRAINING' && round % 2 === 1) {
+                    return {
+                        type: 'buff',
+                        name: '战吼操练',
+                        label: '训练营守军在号子里压了上来',
+                        atkGain: 3 + Math.min(2, enemyState.facilityLevel || 1),
+                        heal: 3 + (enemyState.roleCounts?.total || 0)
+                    };
+                }
+                if (enemyState.facilityType === 'INCOME' && round % 2 === 0) {
+                    return {
+                        type: 'buff',
+                        name: '赏金加码',
+                        label: '金矿把新到钱货和补给压给了守军',
+                        atkGain: 2 + Math.min(2, enemyState.facilityLevel || 1),
+                        heal: 4 + (enemyState.roleCounts?.total || 0) * 2
+                    };
+                }
+                if (enemyState.facilityType === 'GUARD' && round % 2 === 0) {
+                    return {
+                        type: 'attack',
+                        name: '岗哨交叉火力',
+                        label: '守卫哨站正在纠合同位与城墙进行交叉打击',
+                        damageBonus: 2 + (enemyState.facilityLevel || 1),
+                        blockPierce: 1 + Math.min(2, enemyState.roleCounts?.SPEAR || 0)
                     };
                 }
                 if ((enemyState.roleCounts?.SPEAR || 0) > 0) {
