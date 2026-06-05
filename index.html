@@ -835,11 +835,11 @@
                 MEND: { name: '治愈', kind: 'heal', heal: 16, text: '恢复 16HP。' },
                 TOWER_GUARD: { name: '塔盾掩护', kind: 'defend', block: 13, text: '临时城防掩护，本回合获得更厚的格挡。' },
                 PIKE_CHARGE: { name: '枪阵突击', kind: 'skill', power: 13, text: '守军枪阵前压，造成 ATK+13 技能伤害。' },
-                FIELD_DRESS: { name: '战地包扎', kind: 'heal', heal: 12, text: '恢复 12HP，并稳住战线。' },
+                FIELD_DRESS: { name: '战地包扎', kind: 'heal', heal: 18, text: '恢复 18HP，并稳住战线。' },
                 AMBUSH: { name: '侧翼伏击', kind: 'skill', power: 14, text: '斥候与机关配合，从侧翼打出 ATK+14。' },
                 WAR_BANNER: { name: '战旗推进', kind: 'buff', atk: 3, text: '本场作战士气高涨，永久 ATK +3。' },
                 SIEGE_KIT: { name: '攻城工包', kind: 'attack', power: 11, text: '工坊器具强拆城防，造成 ATK+11 伤害。' },
-                SUPPLY_LINE: { name: '补给线', kind: 'heal', heal: 10, text: '同路块后方补给赶到，恢复 10HP。' }
+                SUPPLY_LINE: { name: '补给线', kind: 'heal', heal: 14, text: '同路块后方补给赶到，恢复 14HP。' }
             },
             facilityConfigs: {
                 TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10, allowsGuards: true, guardSlots: 1 },
@@ -2824,6 +2824,9 @@
                         if (this.queuePreparedBattleCard(player, 'WAR_BANNER', '指挥所')) {
                             this.createFloatingText('+战旗牌', slot.mesh.position, "#4b7bec");
                         }
+                        if (slot.level >= slot.maxLevel) {
+                            this.refineDeckCard(player, ['RALLY', 'STRIKE'], 'WAR_BANNER', '指挥所');
+                        }
                         this.updateGuardMarkers(slot);
                         this.log(`指挥所吹响集结号，让同路块守军完成整队：${guards.length} 名守军恢复 ${guardHeal} HP 并获得 +1 ATK，你也获得了 +1 ATK。`);
                         this.createFloatingText(`集结号 x${guards.length}`, slot.mesh.position, "#4b7bec");
@@ -2869,6 +2872,9 @@
                     if (slot.level >= 2 && this.queuePreparedBattleCard(player, 'FIELD_DRESS', '治疗营地')) {
                         this.createFloatingText('+包扎牌', slot.mesh.position, "#2ed573");
                     }
+                    if (slot.level >= slot.maxLevel) {
+                        this.refineDeckCard(player, 'MEND', 'FIELD_DRESS', '治疗营地');
+                    }
                     this.log(`治疗营地恢复 ${actual} HP。`);
                     this.createFloatingText(`+${actual}HP`, player.meshGroup.position, "#2ed573");
                 } else if (slot.type === 'TRAINING') {
@@ -2879,6 +2885,9 @@
                     });
                     if (this.queuePreparedBattleCard(player, 'PIKE_CHARGE', '训练营')) {
                         this.createFloatingText('+突击牌', slot.mesh.position, "#ffb142");
+                    }
+                    if (slot.level >= slot.maxLevel) {
+                        this.refineDeckCard(player, 'STRIKE', 'PIKE_CHARGE', '训练营');
                     }
                     this.log(`训练营鼓舞士气，ATK +${atkGain}。`);
                     this.createFloatingText(`ATK +${atkGain}`, player.meshGroup.position, "#ffb142");
@@ -2912,6 +2921,9 @@
                     if (trained > 0 && this.queuePreparedBattleCard(player, 'TOWER_GUARD', '兵营')) {
                         this.createFloatingText('+掩护牌', slot.mesh.position, "#ff7f50");
                     }
+                    if (slot.level >= slot.maxLevel && trained > 0) {
+                        this.refineDeckCard(player, 'GUARD_UP', 'TOWER_GUARD', '兵营');
+                    }
                 } else if (slot.type === 'WORKSHOP') {
                     const selfFortify = 4 + slot.level * 2;
                     slot.defense += selfFortify;
@@ -2922,6 +2934,9 @@
                     });
                     if (slot.level >= 2 && this.queuePreparedBattleCard(player, 'SIEGE_KIT', '城防工坊')) {
                         this.createFloatingText('+工包牌', slot.mesh.position, "#747d8c");
+                    }
+                    if (slot.level >= slot.maxLevel) {
+                        this.refineDeckCard(player, ['STRIKE', 'PIKE_CHARGE'], 'SIEGE_KIT', '城防工坊');
                     }
                     this.updateFacilityVisual(slot);
                     this.log(`城防工坊加固了城墙，本体防御 +${selfFortify}${others.length > 0 ? `，并强化同路口 ${others.length} 座友方建筑` : ''}。`);
@@ -3164,6 +3179,20 @@
                 this.grantCard(player, cardId);
                 const resolve = this.battleRewardResolver;
                 resolve(cardId);
+            },
+
+            refineDeckCard(player, fromCardIds, toCardId, sourceLabel = '精修') {
+                if (!player || !Array.isArray(player.deck) || !this.cardLibrary[toCardId]) return false;
+                const candidates = Array.isArray(fromCardIds) ? fromCardIds : [fromCardIds];
+                const removeIndex = player.deck.findIndex(cardId => candidates.includes(cardId));
+                if (removeIndex < 0) return false;
+
+                const removed = player.deck.splice(removeIndex, 1, toCardId)[0];
+                const fromCard = this.cardLibrary[removed];
+                const toCard = this.cardLibrary[toCardId];
+                this.log(`${sourceLabel} 将《${fromCard?.name || removed}》精修为《${toCard.name}》。`);
+                this.createFloatingText(`${toCard.name}!`, player.meshGroup.position, "#1e90ff");
+                return true;
             },
 
             skipBattleReward() {
