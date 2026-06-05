@@ -857,6 +857,41 @@
                 { key: 'SPEAR', name: '枪兵', maxHp: 22, atk: 6, color: 0xffb142 },
                 { key: 'SCOUT', name: '斥候', maxHp: 18, atk: 7, color: 0x2ed573 }
             ],
+            monsterArchetypes: [
+                {
+                    key: 'BRUTE',
+                    name: '角林蛮兽',
+                    hp: 32,
+                    atk: 5,
+                    exp: 22,
+                    gold: 28,
+                    color: 0x20bf6b,
+                    rewardPool: ['STRIKE', 'GUARD_UP', 'TOWER_GUARD', 'MEND', 'RALLY'],
+                    trait: '皮厚冲撞型，喜欢正面顶上来'
+                },
+                {
+                    key: 'SCOUT',
+                    name: '裂爪夜雀',
+                    hp: 24,
+                    atk: 7,
+                    exp: 24,
+                    gold: 26,
+                    color: 0x6c5ce7,
+                    rewardPool: ['AMBUSH', 'FIELD_DRESS', 'RALLY', 'STRIKE', 'SUPPLY_LINE'],
+                    trait: '游击扑杀型，会侧翼切入和回身整势'
+                },
+                {
+                    key: 'CASTER',
+                    name: '苔冠术蛙',
+                    hp: 27,
+                    atk: 6,
+                    exp: 26,
+                    gold: 30,
+                    color: 0x00a8cc,
+                    rewardPool: ['FIREBALL', 'MEND', 'SUPPLY_LINE', 'RALLY', 'FIELD_DRESS'],
+                    trait: '施法消耗型，会喷吐孢团并自我回生'
+                }
+            ],
             guardRecruitCost: 65,
             cameraOffset: new THREE.Vector3(0, 0, 0),
             cameraTarget: new THREE.Vector3(0, 0, 0),
@@ -1269,21 +1304,49 @@
             },
 
             spawnMonsterOnSlot(slot) {
+                const archetype = this.monsterArchetypes[(Math.abs(Math.round(slot.x + slot.z)) + slot.node.id) % this.monsterArchetypes.length];
                 const group = new THREE.Group();
                 const bodyGeom = new THREE.SphereGeometry(0.36, 16, 16);
-                const body = new THREE.Mesh(bodyGeom, new THREE.MeshToonMaterial({ color: 0x20bf6b }));
+                const body = new THREE.Mesh(bodyGeom, new THREE.MeshToonMaterial({ color: archetype.color }));
                 body.scale.set(1.15, 0.72, 1.15);
                 body.position.y = 0.42;
                 body.castShadow = true;
 
-                const hornGeom = new THREE.ConeGeometry(0.16, 0.32, 8);
-                const horn = new THREE.Mesh(hornGeom, new THREE.MeshToonMaterial({ color: 0xf7f1e3 }));
-                horn.position.set(0.18, 0.78, 0.06);
-                horn.rotation.z = -0.35;
-                horn.castShadow = true;
-
                 group.add(body);
-                group.add(horn);
+                if (archetype.key === 'BRUTE') {
+                    const leftHorn = new THREE.Mesh(
+                        new THREE.ConeGeometry(0.16, 0.32, 8),
+                        new THREE.MeshToonMaterial({ color: 0xf7f1e3 })
+                    );
+                    leftHorn.position.set(-0.18, 0.78, 0.06);
+                    leftHorn.rotation.z = 0.35;
+                    leftHorn.castShadow = true;
+                    const rightHorn = new THREE.Mesh(
+                        new THREE.ConeGeometry(0.16, 0.32, 8),
+                        new THREE.MeshToonMaterial({ color: 0xf7f1e3 })
+                    );
+                    rightHorn.position.set(0.18, 0.78, 0.06);
+                    rightHorn.rotation.z = -0.35;
+                    rightHorn.castShadow = true;
+                    group.add(leftHorn, rightHorn);
+                } else if (archetype.key === 'SCOUT') {
+                    const wingLeft = this.createToonBox(0.42, 0.08, 0.24, 0xdfe6e9, false);
+                    wingLeft.position.set(-0.38, 0.5, 0);
+                    wingLeft.rotation.z = 0.45;
+                    const wingRight = this.createToonBox(0.42, 0.08, 0.24, 0xdfe6e9, false);
+                    wingRight.position.set(0.38, 0.5, 0);
+                    wingRight.rotation.z = -0.45;
+                    group.add(wingLeft, wingRight);
+                } else if (archetype.key === 'CASTER') {
+                    const crown = this.createToonBox(0.48, 0.12, 0.48, 0xc7ecee, false);
+                    crown.position.set(0, 0.82, 0);
+                    const orb = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.08, 10, 10),
+                        new THREE.MeshToonMaterial({ color: 0xfeca57 })
+                    );
+                    orb.position.set(0, 1.02, 0);
+                    group.add(crown, orb);
+                }
                 group.userData.baseY = 0.18;
                 group.position.set(slot.x, -8, slot.z);
                 this.scene.add(group);
@@ -1299,6 +1362,15 @@
                     meshGroup: group,
                     bodyMesh: body
                 };
+                monster.key = archetype.key;
+                monster.name = archetype.name;
+                monster.hp = archetype.hp;
+                monster.maxHp = archetype.hp;
+                monster.atk = archetype.atk;
+                monster.exp = archetype.exp;
+                monster.gold = archetype.gold;
+                monster.rewardPool = [...archetype.rewardPool];
+                monster.trait = archetype.trait;
                 slot.monster = monster;
                 this.monsters.push(monster);
 
@@ -2331,6 +2403,7 @@
                     <div class="info-tag">野怪</div>
                     ${this.infoRow('HP', `${monster.hp}/${monster.maxHp}`)}
                     ${this.infoRow('ATK', monster.atk)}
+                    ${this.infoRow('特性', monster.trait || '标准野怪')}
                     ${this.infoRow('奖励', `${monster.gold}G / ${monster.exp}EXP`)}
                 `;
             },
@@ -3043,7 +3116,9 @@
                     return [...new Set([facilityCard, eliteCard, ...guardCards, ...basePool].filter(Boolean))];
                 }
                 if (source.kind === 'monster') {
-                    return ['STRIKE', 'GUARD_UP', 'FIREBALL', 'MEND', 'AMBUSH', 'FIELD_DRESS', 'RALLY'];
+                    return source.monster?.rewardPool?.length
+                        ? [...source.monster.rewardPool]
+                        : ['STRIKE', 'GUARD_UP', 'FIREBALL', 'MEND', 'AMBUSH', 'FIELD_DRESS', 'RALLY'];
                 }
                 return basePool;
             },
@@ -3541,11 +3616,12 @@
                 });
 
                 if (victory) {
+                    const rewardSource = { kind: 'monster', monster: { ...slot.monster } };
                     player.gold += slot.monster.gold;
                     this.gainExp(player, slot.monster.exp);
                     this.clearMonster(slot);
                     this.log("野怪被赶走了，这块地现在可以建造。");
-                    await this.offerBattleCardReward(player, { kind: 'monster', monster: slot.monster });
+                    await this.offerBattleCardReward(player, rewardSource);
                     this.updateUI();
                     this.finishAction(false);
                 } else {
@@ -3653,8 +3729,11 @@
                     maxHp: enemy.maxHp || enemy.hp,
                     atk: enemy.atk || 4,
                     phase: 'single',
-                    phaseLabel: kind === 'monster' ? '击败野怪即可清空地块' : '常规战斗',
+                    phaseLabel: kind === 'monster'
+                        ? `${enemy.trait || '击败野怪即可清空地块'}`
+                        : '常规战斗',
                     intentLabel: '',
+                    monsterType: enemy.key || null,
                     facilityType: enemy.facilityType || null,
                     facilityLevel: enemy.facilityLevel || 1
                 };
@@ -4307,6 +4386,76 @@
 
             chooseEnemyBattleAction(enemyState, kind, round) {
                 if (kind === 'monster') {
+                    if (enemyState.monsterType === 'BRUTE') {
+                        if (enemyState.hp <= enemyState.maxHp * 0.42) {
+                            return {
+                                type: 'attack',
+                                name: '暴角狂扑',
+                                label: '蛮兽压低双角，准备狠狠干碎防线',
+                                damageBonus: 4,
+                                blockPierce: 1
+                            };
+                        }
+                        if (round % 3 === 0) {
+                            return {
+                                type: 'attack',
+                                name: '铁皮翻滚',
+                                label: '蛮兽卷身碾过来，连防御姿态都会被震散',
+                                damageBonus: 2,
+                                blockPierce: 2
+                            };
+                        }
+                        return {
+                            type: 'attack',
+                            name: '撞角猛冲',
+                            label: '蛮兽正面顶上来，想把你从地块边缘撞开',
+                            damageBonus: 2,
+                            blockPierce: 0
+                        };
+                    }
+                    if (enemyState.monsterType === 'SCOUT') {
+                        if (enemyState.hp <= enemyState.maxHp * 0.5 && round % 2 === 0) {
+                            return {
+                                type: 'fortify',
+                                name: '掠翼回旋',
+                                label: '夜雀拉开距离重新盘旋，想等下一次俯冲',
+                                heal: 5
+                            };
+                        }
+                        return {
+                            type: 'attack',
+                            name: round % 2 === 1 ? '裂爪切入' : '低空掠袭',
+                            label: '夜雀贴着侧翼压低飞行，从视野边缘斜切进来',
+                            damageBonus: round % 2 === 1 ? 3 : 1,
+                            blockPierce: 1
+                        };
+                    }
+                    if (enemyState.monsterType === 'CASTER') {
+                        if (enemyState.hp <= enemyState.maxHp * 0.45) {
+                            return {
+                                type: 'fortify',
+                                name: '苔甲回生',
+                                label: '术蛙把湿苔覆回伤口，正在缓慢回气',
+                                heal: 6
+                            };
+                        }
+                        if (round % 3 === 1) {
+                            return {
+                                type: 'buff',
+                                name: '咒鸣鼓胀',
+                                label: '术蛙鼓起喉囊，下一轮孢团喷吐会更危险',
+                                atkGain: 2,
+                                heal: 2
+                            };
+                        }
+                        return {
+                            type: 'attack',
+                            name: '孢团喷吐',
+                            label: '术蛙朝前方喷出带粘性的孢团，想把你钉在原地',
+                            damageBonus: 3,
+                            blockPierce: 0
+                        };
+                    }
                     if (enemyState.hp <= enemyState.maxHp * 0.45) {
                         return {
                             type: 'attack',
