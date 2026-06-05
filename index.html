@@ -2395,6 +2395,17 @@
                 const supportSlots = this.getNodeOwnedFacilities(player);
                 if (supportSlots.length === 0) return;
                 let anyPromotion = false;
+                const nodePlan = this.getNodeBattlefrontPlanPayload(supportSlots);
+                nodePlan.supportCardIds.forEach(cardId => cardIds.push(cardId));
+                if (nodePlan.labels.length > 0) {
+                    summary.push(`路口计划:${nodePlan.labels.join('/')}`);
+                }
+                if (nodePlan.preparedCardIds.length > 0) {
+                    summary.push(`路口筹备:${nodePlan.preparedCardIds.map(cardId => this.getCardDisplayName(cardId)).join('/')}`);
+                }
+                extraDraw += nodePlan.extraDraw || 0;
+                openingHeal += nodePlan.openingHeal || 0;
+
                 supportSlots.forEach(slot => {
                     const promotions = this.grantSlotGuardExp(slot, amount, sourceLabel);
                     if (promotions.length > 0) anyPromotion = true;
@@ -2635,11 +2646,135 @@
                     this.createFloatingText(`敌方联动鼓舞 +${combo.passByAtk}`, slot.mesh.position, "#ffb142");
                 }
                 if (lines.length > 0) {
-                    this.log(`敌方 ${this.getFacilityName(slot)} 的训练联动发动：${combo.labels.join(' / ')}，${lines.join('，')}。`);
+                    this.log('Enemy training combo: ' + combo.labels.join(' / ') + ' | ' + lines.join(' / '));
                 }
                 await this.wait(180);
             },
 
+            async triggerOwnedBattlefrontPlan(slots, player) {
+                const ownedSlots = (slots || []).filter(slot => slot?.owner === player && slot.type !== 'EMPTY');
+                const plan = this.getNodeBattlefrontPlanPayload(ownedSlots);
+                if (!player || ownedSlots.length === 0 || plan.labels.length === 0) return;
+
+                const lines = [];
+                if (plan.passByDefenseGain > 0) {
+                    ownedSlots.forEach(slot => {
+                        slot.defense += plan.passByDefenseGain;
+                        this.updateFacilityVisual(slot);
+                    });
+                    lines.push('路口加固 +' + plan.passByDefenseGain);
+                    this.createFloatingText('战区加固 +' + plan.passByDefenseGain, ownedSlots[0].mesh.position, '#70a1ff');
+                }
+                if (plan.passByHeal > 0) {
+                    const beforeHp = player.hp;
+                    player.hp = Math.min(player.maxHp, player.hp + plan.passByHeal);
+                    const healed = player.hp - beforeHp;
+                    if (healed > 0) {
+                        lines.push('路口整补 ' + healed + ' HP');
+                        this.createFloatingText('战区整补 +' + healed, player.meshGroup.position, '#2ed573');
+                    }
+                    ownedSlots.forEach(slot => {
+                        slot.guards.forEach(guard => {
+                            guard.hp = Math.min(guard.maxHp, guard.hp + Math.max(2, Math.floor(plan.passByHeal / 2)));
+                        });
+                    });
+                }
+                if (plan.passByGold > 0) {
+                    player.gold += plan.passByGold;
+                    lines.push('调来补给 ' + plan.passByGold + 'G');
+                    this.createFloatingText('战区补给 +' + plan.passByGold + 'G', ownedSlots[0].mesh.position, '#eccc68');
+                }
+                if (plan.passByAtk > 0) {
+                    player.atk += plan.passByAtk;
+                    ownedSlots.forEach(slot => {
+                        slot.guards.forEach(guard => {
+                            guard.atk += plan.passByAtk;
+                        });
+                    });
+                    lines.push('整队鼓舞 +' + plan.passByAtk + ' ATK');
+                    this.createFloatingText('战区鼓舞 +' + plan.passByAtk, player.meshGroup.position, '#ffb142');
+                }
+
+                plan.preparedCardIds.forEach(cardId => {
+                    if (this.queuePreparedBattleCard(player, cardId, '路口计划:' + plan.labels.join('/'))) {
+                        this.createFloatingText('+' + this.getCardDisplayName(cardId), ownedSlots[0].mesh.position, '#a55eea');
+                    }
+                });
+                ownedSlots.forEach(slot => this.grantSlotGuardExp(slot, 1, '路口计划'));
+
+                if (lines.length > 0 || plan.preparedCardIds.length > 0) {
+                    const preparedText = plan.preparedCardIds.length > 0
+                        ? ' / extra prep ' + plan.preparedCardIds.map(cardId => this.getCardDisplayName(cardId)).join('/')
+                        : '';
+                    this.log('Node plan active: ' + plan.labels.join(' / ') + ' | ' + lines.join(' / ') + preparedText);
+                }
+                await this.wait(220);
+            },
+
+            async triggerEnemyBattlefrontPlan(slots, player) {
+                const enemySlots = (slots || []).filter(slot => slot?.owner && slot.owner !== player && slot.type !== 'EMPTY');
+                if (enemySlots.length === 0) return;
+                const owner = enemySlots[0].owner;
+                const plan = this.getNodeBattlefrontPlanPayload(enemySlots);
+                if (!owner || plan.labels.length === 0) return;
+
+                const lines = [];
+                if (plan.passByDefenseGain > 0) {
+                    enemySlots.forEach(slot => {
+                        slot.defense += plan.passByDefenseGain;
+                        this.updateFacilityVisual(slot);
+                    });
+                    lines.push('战区加固 +' + plan.passByDefenseGain);
+                    this.createFloatingText('敌方战区加固 +' + plan.passByDefenseGain, enemySlots[0].mesh.position, '#70a1ff');
+                }
+                if (plan.passByHeal > 0) {
+                    const beforeHp = owner.hp;
+                    owner.hp = Math.min(owner.maxHp, owner.hp + plan.passByHeal);
+                    const healed = owner.hp - beforeHp;
+                    if (healed > 0) {
+                        lines.push('整线整补 ' + healed + ' HP');
+                        this.createFloatingText('敌方战区整补 +' + healed, enemySlots[0].mesh.position, '#2ed573');
+                    }
+                }
+                if (plan.passByGold > 0) {
+                    const stolen = Math.min(player.gold, plan.passByGold);
+                    if (stolen > 0) {
+                        player.gold -= stolen;
+                        owner.gold += stolen;
+                        lines.push('截走资金 ' + stolen + 'G');
+                        this.createFloatingText('敌方战区截补 -' + stolen + 'G', player.meshGroup.position, '#eccc68');
+                    }
+                }
+                if (plan.passByAtk > 0) {
+                    owner.atk += plan.passByAtk;
+                    enemySlots.forEach(slot => {
+                        slot.guards.forEach(guard => {
+                            guard.atk += plan.passByAtk;
+                        });
+                    });
+                    lines.push('战区鼓舞 +' + plan.passByAtk + ' ATK');
+                    this.createFloatingText('敌方战区鼓舞 +' + plan.passByAtk, enemySlots[0].mesh.position, '#ffb142');
+                }
+                if (plan.pressureDefenseBoost > 0) {
+                    enemySlots.forEach(slot => {
+                        slot.defense += plan.pressureDefenseBoost;
+                        this.updateFacilityVisual(slot);
+                    });
+                    lines.push('抬高城防 +' + plan.pressureDefenseBoost);
+                }
+                if (plan.pressureGoldLoss > 0) {
+                    const stolen = Math.min(player.gold, plan.pressureGoldLoss);
+                    if (stolen > 0) {
+                        player.gold -= stolen;
+                        owner.gold += stolen;
+                        lines.push('追加截补 ' + stolen + 'G');
+                    }
+                }
+                if (lines.length > 0) {
+                    this.log('Enemy node plan active: ' + plan.labels.join(' / ') + ' | ' + lines.join(' / '));
+                }
+                await this.wait(220);
+            },
             getGuardSummary(slot, joiner = ' / ') {
                 if (!slot.guards || slot.guards.length === 0) return '无守军';
                 return slot.guards
@@ -2800,6 +2935,226 @@
                 return doctrine.summary.length > 0
                     ? doctrine.summary.join(' / ')
                     : '当前没有额外编成加成';
+            },
+
+            getFacilityTypeCounts(slotOrSlots) {
+                const slots = Array.isArray(slotOrSlots)
+                    ? slotOrSlots
+                    : (slotOrSlots?.slots || []);
+                const counts = {
+                    TRAP: 0,
+                    GUARD: 0,
+                    INCOME: 0,
+                    HEAL: 0,
+                    TRAINING: 0,
+                    BARRACKS: 0,
+                    COMMAND: 0,
+                    FORTRESS: 0,
+                    WORKSHOP: 0,
+                    total: 0
+                };
+                slots.forEach(slot => {
+                    if (!slot || slot.type === 'EMPTY') return;
+                    if (counts[slot.type] === undefined) counts[slot.type] = 0;
+                    counts[slot.type] += 1;
+                    counts.total += 1;
+                });
+                return counts;
+            },
+
+            getNodeBattlefrontPlanPayload(slotOrSlots) {
+                const slots = Array.isArray(slotOrSlots)
+                    ? slotOrSlots.filter(slot => slot && slot.type !== 'EMPTY')
+                    : ((slotOrSlots?.slots || []).filter(slot => slot && slot.type !== 'EMPTY'));
+                if (slots.length === 0) {
+                    return {
+                        labels: [],
+                        supportCardIds: [],
+                        spoilCardIds: [],
+                        preparedCardIds: [],
+                        passByDefenseGain: 0,
+                        passByHeal: 0,
+                        passByGold: 0,
+                        passByAtk: 0,
+                        pressureGoldLoss: 0,
+                        pressureDamage: 0,
+                        pressureDefenseBoost: 0,
+                        extraDraw: 0,
+                        openingHeal: 0,
+                        preferredBuildTypes: [],
+                        preferredGuardRoles: []
+                    };
+                }
+
+                const counts = this.getFacilityTypeCounts(slots);
+                const payload = {
+                    labels: [],
+                    supportCardIds: [],
+                    spoilCardIds: [],
+                    preparedCardIds: [],
+                    passByDefenseGain: 0,
+                    passByHeal: 0,
+                    passByGold: 0,
+                    passByAtk: 0,
+                    pressureGoldLoss: 0,
+                    pressureDamage: 0,
+                    pressureDefenseBoost: 0,
+                    extraDraw: 0,
+                    openingHeal: 0,
+                    preferredBuildTypes: [],
+                    preferredGuardRoles: []
+                };
+
+                const pushUnique = (list, value) => {
+                    if (!value || list.includes(value)) return;
+                    list.push(value);
+                };
+
+                const addPlan = (pairCount, label, effect) => {
+                    if (pairCount <= 0) return;
+                    payload.labels.push(`${label}x${pairCount}`);
+                    payload.passByDefenseGain += (effect.passByDefenseGain || 0) * pairCount;
+                    payload.passByHeal += (effect.passByHeal || 0) * pairCount;
+                    payload.passByGold += (effect.passByGold || 0) * pairCount;
+                    payload.passByAtk += (effect.passByAtk || 0) * pairCount;
+                    payload.pressureGoldLoss += (effect.pressureGoldLoss || 0) * pairCount;
+                    payload.pressureDamage += (effect.pressureDamage || 0) * pairCount;
+                    payload.pressureDefenseBoost += (effect.pressureDefenseBoost || 0) * pairCount;
+                    payload.extraDraw += (effect.extraDraw || 0) * pairCount;
+                    payload.openingHeal += (effect.openingHeal || 0) * pairCount;
+                    (effect.supportCardIds || []).forEach(cardId => {
+                        if (this.cardLibrary[cardId]) pushUnique(payload.supportCardIds, cardId);
+                    });
+                    (effect.spoilCardIds || []).forEach(cardId => {
+                        if (this.cardLibrary[cardId]) pushUnique(payload.spoilCardIds, cardId);
+                    });
+                    (effect.preparedCardIds || []).forEach(cardId => {
+                        if (this.cardLibrary[cardId]) pushUnique(payload.preparedCardIds, cardId);
+                    });
+                    (effect.preferredBuildTypes || []).forEach(type => pushUnique(payload.preferredBuildTypes, type));
+                    (effect.preferredGuardRoles || []).forEach(role => pushUnique(payload.preferredGuardRoles, role));
+                };
+
+                addPlan(
+                    Math.min(counts.COMMAND || 0, counts.BARRACKS || 0),
+                    '军议战团',
+                    {
+                        passByAtk: 1,
+                        passByHeal: 4,
+                        pressureDamage: 2,
+                        supportCardIds: ['WAR_BANNER', 'PIKE_CHARGE'],
+                        spoilCardIds: ['WAR_BANNER'],
+                        preparedCardIds: ['WAR_BANNER'],
+                        extraDraw: 1,
+                        preferredBuildTypes: ['COMMAND', 'BARRACKS'],
+                        preferredGuardRoles: ['SPEAR']
+                    }
+                );
+
+                addPlan(
+                    Math.min(counts.FORTRESS || 0, counts.WORKSHOP || 0),
+                    '堡垒防线',
+                    {
+                        passByDefenseGain: 4,
+                        pressureDefenseBoost: 4,
+                        supportCardIds: ['TOWER_GUARD', 'SIEGE_KIT'],
+                        spoilCardIds: ['SIEGE_KIT'],
+                        preparedCardIds: ['TOWER_GUARD'],
+                        preferredBuildTypes: ['FORTRESS', 'WORKSHOP'],
+                        preferredGuardRoles: ['SHIELD']
+                    }
+                );
+
+                addPlan(
+                    Math.min(counts.HEAL || 0, counts.TRAINING || 0),
+                    '医训营地',
+                    {
+                        passByHeal: 8,
+                        passByAtk: 1,
+                        supportCardIds: ['FIELD_DRESS', 'PIKE_CHARGE'],
+                        spoilCardIds: ['FIELD_DRESS'],
+                        preparedCardIds: ['FIELD_DRESS'],
+                        openingHeal: 6,
+                        preferredBuildTypes: ['HEAL', 'TRAINING'],
+                        preferredGuardRoles: ['SPEAR', 'SCOUT']
+                    }
+                );
+
+                addPlan(
+                    Math.min(counts.INCOME || 0, counts.TRAP || 0),
+                    '暗市伏线',
+                    {
+                        passByGold: 18,
+                        pressureGoldLoss: 10,
+                        pressureDamage: 1,
+                        supportCardIds: ['SUPPLY_LINE', 'AMBUSH'],
+                        spoilCardIds: ['AMBUSH'],
+                        preparedCardIds: ['SUPPLY_LINE'],
+                        extraDraw: 1,
+                        preferredBuildTypes: ['INCOME', 'TRAP'],
+                        preferredGuardRoles: ['SCOUT']
+                    }
+                );
+
+                return payload;
+            },
+
+            getNodeBattlefrontSummaryText(slotOrSlots, sourceLabel = '路口战区计划') {
+                const plan = this.getNodeBattlefrontPlanPayload(slotOrSlots);
+                if (plan.labels.length === 0) return `${sourceLabel}:暂无`;
+                const parts = [`${sourceLabel}:${plan.labels.join(' / ')}`];
+                if (plan.supportCardIds.length > 0) {
+                    parts.push(`支援:${plan.supportCardIds.map(cardId => this.getCardDisplayName(cardId)).join('/')}`);
+                }
+                if (plan.preferredGuardRoles.length > 0) {
+                    const roleLabels = {
+                        SHIELD: '盾卫',
+                        SPEAR: '枪兵',
+                        SCOUT: '斥候'
+                    };
+                    parts.push(`偏好:${plan.preferredGuardRoles.map(role => roleLabels[role] || role).join('/')}`);
+                }
+                return parts.join(' / ');
+            },
+
+            getNodeBattlefrontBuildTargets(slotOrSlots) {
+                const slots = Array.isArray(slotOrSlots)
+                    ? slotOrSlots.filter(slot => slot && slot.type !== 'EMPTY')
+                    : ((slotOrSlots?.slots || []).filter(slot => slot && slot.type !== 'EMPTY'));
+                const counts = this.getFacilityTypeCounts(slots);
+                const targets = [];
+                const addTarget = (haveType, needType) => {
+                    if ((counts[haveType] || 0) > 0 && (counts[needType] || 0) === 0 && !targets.includes(needType)) {
+                        targets.push(needType);
+                    }
+                };
+                addTarget('COMMAND', 'BARRACKS');
+                addTarget('BARRACKS', 'COMMAND');
+                addTarget('FORTRESS', 'WORKSHOP');
+                addTarget('WORKSHOP', 'FORTRESS');
+                addTarget('HEAL', 'TRAINING');
+                addTarget('TRAINING', 'HEAL');
+                addTarget('INCOME', 'TRAP');
+                addTarget('TRAP', 'INCOME');
+                return targets;
+            },
+
+            getNodePreferredGuardRole(slot, ownedSlots = []) {
+                const plan = this.getNodeBattlefrontPlanPayload(ownedSlots);
+                if (!plan.preferredGuardRoles.length) {
+                    return this.getGuardArchetype(null, slot)?.key || null;
+                }
+
+                const counts = ownedSlots.reduce((result, facility) => {
+                    const local = this.getGuardRoleCounts(facility);
+                    result.SHIELD += local.SHIELD;
+                    result.SPEAR += local.SPEAR;
+                    result.SCOUT += local.SCOUT;
+                    return result;
+                }, { SHIELD: 0, SPEAR: 0, SCOUT: 0 });
+
+                return [...plan.preferredGuardRoles]
+                    .sort((a, b) => counts[a] - counts[b])[0] || this.getGuardArchetype(null, slot)?.key || null;
             },
 
             getCardDisplayName(cardId) {
@@ -3579,6 +3934,10 @@
                 const doctrineText = this.getGuardDoctrineSummaryText(slot, '驻军编成');
                 const trainingText = this.getGuardTrainingSummary(slot);
                 const trainingComboText = this.getGuardTrainingComboSummary(slot);
+                const battlefrontText = this.getNodeBattlefrontSummaryText(
+                    slot.node?.slots?.filter(other => other.owner === slot.owner && other.type !== 'EMPTY') || [slot],
+                    '路口计划'
+                );
                 const veterancySupportText = this.getGuardVeterancySupportText(slot, '老兵支援');
                 const spoilsText = this.getFacilitySpoilsPreviewText(slot);
                 const passByLabel = ownedByPlayer ? '过路增援' : '路口施压';
@@ -3596,6 +3955,7 @@
                     ${this.infoRow('驻军编成', this.getGuardSummary(slot, ' | '))}
                     ${this.infoRow('驻军训练', trainingText)}
                     ${this.infoRow('训练联动', trainingComboText)}
+                    ${this.infoRow('路口计划', battlefrontText)}
                     ${this.infoRow('守军特性', this.getGuardTraitSummary(slot))}
                     ${this.infoRow('守军历练', this.getGuardVeterancySummary(slot))}
                     ${this.infoRow('老兵支援', veterancySupportText)}
@@ -3946,6 +4306,17 @@
                 }
 
                 // 严格按照：敌方被动陷阱 -> 敌方守卫强制战斗 -> 己方增益 -> 城建互动 的顺序
+                const ownedSlots = slots.filter(slot => slot.owner === player);
+                const enemySlots = slots.filter(slot => slot.owner && slot.owner !== player);
+                if (ownedSlots.length > 0) {
+                    this.transitionTo(TurnState.OWNED_EVENTS);
+                    await this.triggerOwnedBattlefrontPlan(ownedSlots, player);
+                }
+                if (player.hp > 0 && enemySlots.length > 0) {
+                    this.transitionTo(TurnState.ENEMY_EVENTS);
+                    await this.triggerEnemyBattlefrontPlan(enemySlots, player);
+                }
+
                 for (let slot of this.getOrderedLandingEventSlots(slots, player)) {
                     if (slot.owner === player) this.transitionTo(TurnState.OWNED_EVENTS);
                     if (slot.owner && slot.owner !== player) this.transitionTo(TurnState.ENEMY_EVENTS);
@@ -4384,11 +4755,14 @@
                     const guardCards = [];
                     const roleCounts = this.getGuardRoleCounts(source.slot);
                     const combo = this.getGuardTrainingComboPayload(source.slot);
+                    const nodePlan = this.getNodeBattlefrontPlanPayload(
+                        source.slot.node?.slots?.filter(other => other.owner === source.slot.owner && other.type !== 'EMPTY') || [source.slot]
+                    );
                     if (roleCounts.SHIELD > 0) guardCards.push('TOWER_GUARD');
                     if (roleCounts.SPEAR > 0) guardCards.push('PIKE_CHARGE');
                     if (roleCounts.SCOUT > 0) guardCards.push('AMBUSH');
                     const veteranCards = this.getGuardVeterancyPackage(source.slot, 'Veteran Spoils').cardIds || [];
-                    return [...new Set([facilityCard, eliteCard, ...guardCards, ...veteranCards, ...combo.spoilCardIds, ...combo.supportCardIds, ...basePool, 'HOLD_FAST', 'FLANK_ORDER', 'SHADOW_PATH', 'VETERAN_DRILL', 'FIELD_RATIONS'].filter(Boolean))];
+                    return [...new Set([facilityCard, eliteCard, ...guardCards, ...veteranCards, ...combo.spoilCardIds, ...combo.supportCardIds, ...nodePlan.spoilCardIds, ...nodePlan.supportCardIds, ...basePool, 'HOLD_FAST', 'FLANK_ORDER', 'SHADOW_PATH', 'VETERAN_DRILL', 'FIELD_RATIONS'].filter(Boolean))];
                 }
                 if (source.kind === 'monster') {
                     return source.monster?.rewardPool?.length
@@ -4457,6 +4831,18 @@
                         preparedCards.push({
                             cardId,
                             sourceLabel: `训练联动战利品:${facilityName}`
+                        });
+                    }
+                });
+
+                const nodePlan = this.getNodeBattlefrontPlanPayload(
+                    slot.node?.slots?.filter(other => other.owner === slot.owner && other.type !== 'EMPTY') || [slot]
+                );
+                nodePlan.spoilCardIds.forEach(cardId => {
+                    if (!preparedCards.some(entry => entry.cardId === cardId)) {
+                        preparedCards.push({
+                            cardId,
+                            sourceLabel: `路口计划战利品:${facilityName}`
                         });
                     }
                 });
@@ -4845,6 +5231,7 @@
 
             performAiBuildAction(player, slots) {
                 const ownedSlots = slots.filter(s => s.owner === player && s.type !== 'EMPTY');
+                const buildTargets = this.getNodeBattlefrontBuildTargets(ownedSlots);
                 const transferTarget = ownedSlots
                     .filter(slot => this.canFacilityHostGuards(slot) && slot.guards.length === 0)
                     .sort((a, b) => a.defense - b.defense)[0];
@@ -4861,10 +5248,14 @@
                     .filter(slot => this.canFacilityHostGuards(slot)
                         && slot.guards.length < this.getGuardCapacity(slot)
                         && player.gold >= this.getGuardRecruitCost(slot))
-                    .sort((a, b) => this.getBuildingBattlePreview(a).hp - this.getBuildingBattlePreview(b).hp);
+                    .sort((a, b) => {
+                        const aWanted = buildTargets.includes(a.type) ? -1 : 0;
+                        const bWanted = buildTargets.includes(b.type) ? -1 : 0;
+                        return aWanted - bWanted || this.getBuildingBattlePreview(a).hp - this.getBuildingBattlePreview(b).hp;
+                    });
                 if (recruitable.length > 0) {
                     const slot = recruitable[0];
-                    const roleKey = this.getGuardArchetype(null, slot)?.key || null;
+                    const roleKey = this.getNodePreferredGuardRole(slot, ownedSlots);
                     this.performRecruitGuard(player, slot, roleKey);
                     this.endTurn();
                     return;
@@ -4881,10 +5272,11 @@
 
                 const emptySlot = slots.find(s => s.type === 'EMPTY' && !s.monster);
                 const preferredTypes = ['FORTRESS', 'COMMAND', 'BARRACKS', 'WORKSHOP', 'GUARD', 'INCOME', 'HEAL', 'TRAINING', 'TRAP'];
-                const types = preferredTypes.filter(type => player.gold >= this.facilityConfigs[type].cost);
+                const strategicTypes = [...buildTargets, ...preferredTypes.filter(type => !buildTargets.includes(type))];
+                const types = strategicTypes.filter(type => player.gold >= this.facilityConfigs[type].cost);
                 if (emptySlot && types.length > 0) {
                     this.selectedSlot = emptySlot;
-                    this.buildFacility(types[Math.floor(Math.random() * types.length)]);
+                    this.buildFacility(types[0]);
                 } else {
                     this.endTurn();
                 }
@@ -4974,7 +5366,9 @@
                     document.getElementById('build-desc').innerText = `${slot.monster.name} 占着这块地。打败它后才能在这里建造。胜利不消耗行动，失败会消耗行动。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。`;
                 } else if (slot.type === 'EMPTY') {
                     this.setBuildMenuButtons('build');
-                    document.getElementById('build-desc').innerText = "选择要建造的设施。兵营偏向练兵和补充守军，指挥所负责整队联动，堡垒与城防工坊更偏向堆墙和抬高攻城难度。建造会消耗当前行动。";
+                    const buildTargets = this.getNodeBattlefrontBuildTargets(this.getNodeOwnedFacilities(player))
+                        .map(type => this.getFacilityName(type));
+                    document.getElementById('build-desc').innerText = `选择要建造的设施。兵营偏向练兵和补充守军，指挥所负责整队联动，堡垒与城防工坊更偏向堆墙和抬高攻城难度。当前路口缺口：${buildTargets.join(' / ') || '暂无明确缺口'}。建造会消耗当前行动。`;
                 } else if (slot.owner === player) {
                     this.setBuildMenuButtons('owned');
                     const upgradeBtn = document.getElementById('btn-upgrade-facility');
@@ -4997,12 +5391,12 @@
                     const guardNote = this.canFacilityHostGuards(slot)
                         ? `守军 ${slot.guards.length}/${guardCapacity}`
                         : '不可驻防，但升级会更快提高防御';
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。战术编成：${this.getGuardDoctrineSummaryText(slot, '驻军编成')}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。本路口支援：${this.getBattleSupportSummaryText(player)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。战术编成：${this.getGuardDoctrineSummaryText(slot, '驻军编成')}。路口计划：${this.getNodeBattlefrontSummaryText(this.getNodeOwnedFacilities(player), '战区计划')}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。本路口支援：${this.getBattleSupportSummaryText(player)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。路口计划：${this.getNodeBattlefrontSummaryText(this.getNodeOwnedFacilities(slot.owner), '敌方战区计划')}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
 
@@ -6702,7 +7096,7 @@
                 const options = document.getElementById('guard-recruit-options');
                 const cost = this.getGuardRecruitCost(slot);
                 options.innerHTML = '';
-                document.getElementById('build-desc').innerText = `选择要补入的守军。当前花费 ${cost}G，新守军会继承 ${this.getFacilityName(slot)} 的驻军训练，不同守军会直接影响攻城战表现。`;
+                document.getElementById('build-desc').innerText = `选择要补入的守军。当前花费 ${cost}G，新守军会继承 ${this.getFacilityName(slot)} 的驻军训练，不同守军会直接影响攻城战表现。当前路口偏好补员：${this.guardArchetypes.find(guard => guard.key === this.getNodePreferredGuardRole(slot, this.getNodeOwnedFacilities(player)))?.name || '通用守军'}。`;
 
                 this.guardArchetypes.forEach(archetype => {
                     const copy = this.getGuardRecruitMenuCopy(archetype, slot);
