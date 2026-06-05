@@ -2201,6 +2201,13 @@
                 return true;
             },
 
+            consumePreparedBattleCard(player) {
+                if (!player?.preparedBattleCards?.length) return null;
+                const cardId = player.preparedBattleCards.pop();
+                const summary = player.preparedBattleSummary?.pop() || this.getCardDisplayName(cardId);
+                return { cardId, summary };
+            },
+
             getPreparedBattleSummaryText(player) {
                 if (!player?.preparedBattleSummary || player.preparedBattleSummary.length === 0) {
                     return '暂无战前筹备牌';
@@ -2391,12 +2398,69 @@
 
             getGuardPressurePayload(slot) {
                 const roleCounts = this.getGuardRoleCounts(slot);
+                const veterancy = this.getGuardVeterancyMetrics(slot);
+                const veteranDefenseBoost = veterancy.byRole.SHIELD + Math.floor(veterancy.totalVeterancy / 2);
+                const veteranGoldLoss = veterancy.byRole.SPEAR * 4 + veterancy.veteranCount * 2;
+                const veteranDamage = veterancy.byRole.SCOUT + veterancy.highestVeterancy * 2;
                 return {
-                    goldLoss: 8 + slot.level * 4 + roleCounts.SPEAR * 6 + roleCounts.total * 2 + (slot.type === 'COMMAND' ? 6 + roleCounts.total * 3 : 0),
-                    damage: roleCounts.SCOUT * (2 + Math.ceil(slot.level / 2)) + (slot.type === 'GUARD' ? 3 + slot.level : 0) + (slot.type === 'COMMAND' ? 2 + slot.level : 0),
-                    defenseBoost: roleCounts.SHIELD * 2 + (slot.type === 'GUARD' ? slot.level : 0),
-                    roleCounts
+                    goldLoss: 8 + slot.level * 4 + roleCounts.SPEAR * 6 + roleCounts.total * 2 + veteranGoldLoss + (slot.type === 'COMMAND' ? 6 + roleCounts.total * 3 : 0),
+                    damage: roleCounts.SCOUT * (2 + Math.ceil(slot.level / 2)) + veteranDamage + (slot.type === 'GUARD' ? 3 + slot.level : 0) + (slot.type === 'COMMAND' ? 2 + slot.level : 0),
+                    defenseBoost: roleCounts.SHIELD * 2 + veteranDefenseBoost + (slot.type === 'GUARD' ? slot.level : 0),
+                    disruptPrepared: veterancy.byRole.SCOUT >= 3 || (veterancy.highestVeterancy >= 3 && veterancy.veteranCount >= 2),
+                    roleCounts,
+                    veterancy
                 };
+            },
+
+            getGuardPressurePreviewText(slot) {
+                if (!slot?.guards?.length) return '暂无守军路口施压';
+                const payload = this.getGuardPressurePayload(slot);
+                const parts = [
+                    `封锁 ${payload.goldLoss}G`,
+                    `压制 ${payload.damage} HP`
+                ];
+                if (payload.defenseBoost > 0) {
+                    parts.push(`固守 +${payload.defenseBoost} 防御`);
+                }
+                if (payload.disruptPrepared) {
+                    parts.push('精锐斥候可能扰乱 1 张战前筹备');
+                }
+                return parts.join(' / ');
+            },
+
+            getOwnedVeteranSupportPayload(slot) {
+                const veterancy = this.getGuardVeterancyMetrics(slot);
+                const veteranSupport = this.getGuardVeterancyPackage(slot, `老兵值守:${this.getFacilityName(slot)}`);
+                if (!slot?.guards?.length || veterancy.veteranCount === 0) {
+                    return {
+                        defenseGain: 0,
+                        heal: 0,
+                        goldGain: 0,
+                        supportCardId: veteranSupport.cardIds[0] || null,
+                        veterancy
+                    };
+                }
+
+                return {
+                    defenseGain: veterancy.byRole.SHIELD + Math.floor(veterancy.totalVeterancy / 3),
+                    heal: veterancy.veteranCount + veterancy.highestVeterancy * 2,
+                    goldGain: veterancy.byRole.SCOUT * 4 + (slot.type === 'INCOME' ? 4 + slot.level * 2 : 0),
+                    supportCardId: veteranSupport.cardIds[0] || null,
+                    veterancy
+                };
+            },
+
+            getOwnedVeteranSupportPreviewText(slot) {
+                const payload = this.getOwnedVeteranSupportPayload(slot);
+                if (!slot?.guards?.length || payload.veterancy.veteranCount === 0) {
+                    return '暂无老兵过路增援';
+                }
+                const parts = [];
+                if (payload.defenseGain > 0) parts.push(`加固 +${payload.defenseGain} 防御`);
+                if (payload.heal > 0) parts.push(`整补 ${payload.heal} HP`);
+                if (payload.goldGain > 0) parts.push(`筹粮 +${payload.goldGain}G`);
+                if (payload.supportCardId) parts.push(`筹备:${this.getCardDisplayName(payload.supportCardId)}`);
+                return parts.join(' / ');
             },
 
             setActionConsumed(consumed) {
@@ -2685,6 +2749,8 @@
                 const doctrineText = this.getGuardDoctrineSummaryText(slot, '驻军编成');
                 const veterancySupportText = this.getGuardVeterancySupportText(slot, '老兵支援');
                 const spoilsText = this.getFacilitySpoilsPreviewText(slot);
+                const passByLabel = ownedByPlayer ? '过路增援' : '路口施压';
+                const passByText = ownedByPlayer ? this.getOwnedVeteranSupportPreviewText(slot) : this.getGuardPressurePreviewText(slot);
                 const guardText = capacity > 0
                     ? `${slot.guards.length}/${capacity}`
                     : '不可驻防';
@@ -2699,6 +2765,7 @@
                     ${this.infoRow('守军特性', this.getGuardTraitSummary(slot))}
                     ${this.infoRow('守军历练', this.getGuardVeterancySummary(slot))}
                     ${this.infoRow('老兵支援', veterancySupportText)}
+                    ${this.infoRow(passByLabel, passByText)}
                     ${this.infoRow('战术编成', doctrineText)}
                     ${this.infoRow('推荐补员', this.getGuardArchetype(null, slot)?.name || '通用守军')}
                     ${this.infoRow('防守类型', preview.battlePlan || preview.label)}
@@ -3251,8 +3318,32 @@
                     this.log(`城防工坊加固了城墙，本体防御 +${selfFortify}${others.length > 0 ? `，并强化同路口 ${others.length} 座友方建筑` : ''}。`);
                     this.createFloatingText(`墙体加固 +${selfFortify}`, slot.mesh.position, "#747d8c");
                 }
-                const veteranSupport = this.getGuardVeterancyPackage(slot, `老兵值守:${this.getFacilityName(slot)}`);
-                if (veteranSupport.cardIds.length > 0 && this.queuePreparedBattleCard(player, veteranSupport.cardIds[0], `老兵值守:${this.getFacilityName(slot)}`)) {
+                const veteranPayload = this.getOwnedVeteranSupportPayload(slot);
+                const veteranLines = [];
+                if (veteranPayload.defenseGain > 0) {
+                    slot.defense += veteranPayload.defenseGain;
+                    this.updateFacilityVisual(slot);
+                    veteranLines.push(`加固城防 +${veteranPayload.defenseGain}`);
+                    this.createFloatingText(`老兵固守 +${veteranPayload.defenseGain}`, slot.mesh.position, "#70a1ff");
+                }
+                if (veteranPayload.heal > 0) {
+                    const before = player.hp;
+                    player.hp = Math.min(player.maxHp, player.hp + veteranPayload.heal);
+                    const actualHeal = player.hp - before;
+                    if (actualHeal > 0) {
+                        veteranLines.push(`整补 ${actualHeal} HP`);
+                        this.createFloatingText(`老兵整补 +${actualHeal}`, player.meshGroup.position, "#2ed573");
+                    }
+                }
+                if (veteranPayload.goldGain > 0) {
+                    player.gold += veteranPayload.goldGain;
+                    veteranLines.push(`筹来 ${veteranPayload.goldGain}G`);
+                    this.createFloatingText(`老兵筹粮 +${veteranPayload.goldGain}G`, slot.mesh.position, "#eccc68");
+                }
+                if (veteranLines.length > 0) {
+                    this.log(`${this.getFacilityName(slot)} 的老兵值守额外带来：${veteranLines.join('，')}。`);
+                }
+                if (veteranPayload.supportCardId && this.queuePreparedBattleCard(player, veteranPayload.supportCardId, `老兵值守:${this.getFacilityName(slot)}`)) {
                     this.createFloatingText('+老兵筹备', slot.mesh.position, "#1e90ff");
                 }
 
@@ -3756,7 +3847,7 @@
             },
 
             async triggerGuardPressure(slot, player) {
-                const { goldLoss, damage, defenseBoost, roleCounts } = this.getGuardPressurePayload(slot);
+                const { goldLoss, damage, defenseBoost, roleCounts, veterancy, disruptPrepared } = this.getGuardPressurePayload(slot);
                 const toll = Math.min(player.gold, goldLoss);
                 const lines = [];
 
@@ -3781,11 +3872,22 @@
                     this.createFloatingText(`-${damage}`, player.meshGroup.position, "#ff6b81");
                 }
 
+                if (disruptPrepared) {
+                    const disrupted = this.consumePreparedBattleCard(player);
+                    if (disrupted) {
+                        lines.push(`精锐斥候扰乱了你的《${this.getCardDisplayName(disrupted.cardId)}》筹备`);
+                        this.createFloatingText(`-${this.getCardDisplayName(disrupted.cardId)}`, player.meshGroup.position, "#a55eea");
+                    }
+                }
+
                 if (roleCounts.SPEAR > 0) {
                     lines.push(`枪兵封锁了通路`);
                 }
                 if (roleCounts.SCOUT > 0) {
                     lines.push(`斥候暴露了你的动线`);
+                }
+                if (veterancy.veteranCount > 0) {
+                    lines.push(`老兵协同让整段压制更老练`);
                 }
 
                 this.log(`敌方 ${this.getFacilityName(slot)} 的守军出动施压：${lines.join('，')}。真正攻城要在行动阶段主动发起挑战。`);
@@ -3970,12 +4072,12 @@
                     const guardNote = this.canFacilityHostGuards(slot)
                         ? `守军 ${slot.guards.length}/${guardCapacity}`
                         : '不可驻防，但升级会更快提高防御';
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。路口施压：${this.getGuardPressurePreviewText(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
                 
@@ -4027,12 +4129,12 @@
                     const guardNote = this.canFacilityHostGuards(slot)
                         ? `守军 ${slot.guards.length}/${guardCapacity}`
                         : '不可驻防，但升级会更快提高防御';
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。战术编成：${this.getGuardDoctrineSummaryText(slot, '驻军编成')}。本路口支援：${this.getBattleSupportSummaryText(player)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。战术编成：${this.getGuardDoctrineSummaryText(slot, '驻军编成')}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。本路口支援：${this.getBattleSupportSummaryText(player)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
 
