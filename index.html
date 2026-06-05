@@ -2059,6 +2059,137 @@
                     .join(' / ');
             },
 
+            getGuardTrainingTypeCounts(slotOrGuards) {
+                const guards = Array.isArray(slotOrGuards)
+                    ? slotOrGuards
+                    : (slotOrGuards?.guards || []);
+                const counts = {};
+                guards.forEach(guard => {
+                    const sourceType = guard.training?.sourceType || guard.sourceType || 'EMPTY';
+                    counts[sourceType] = (counts[sourceType] || 0) + 1;
+                });
+                return counts;
+            },
+
+            getGuardTrainingComboPayload(slotOrGuards) {
+                const guards = Array.isArray(slotOrGuards)
+                    ? slotOrGuards
+                    : (slotOrGuards?.guards || []);
+                if (guards.length === 0) {
+                    return {
+                        labels: [],
+                        supportCardIds: [],
+                        spoilCardIds: [],
+                        passByDefenseGain: 0,
+                        passByHeal: 0,
+                        passByGold: 0,
+                        passByAtk: 0,
+                        pressureGoldLoss: 0,
+                        pressureDamage: 0,
+                        pressureDefenseBoost: 0,
+                        disruptPrepared: false
+                    };
+                }
+
+                const counts = this.getGuardTrainingTypeCounts(guards);
+                const payload = {
+                    labels: [],
+                    supportCardIds: [],
+                    spoilCardIds: [],
+                    passByDefenseGain: 0,
+                    passByHeal: 0,
+                    passByGold: 0,
+                    passByAtk: 0,
+                    pressureGoldLoss: 0,
+                    pressureDamage: 0,
+                    pressureDefenseBoost: 0,
+                    disruptPrepared: false
+                };
+
+                const addCombo = (pairCount, label, effect) => {
+                    if (pairCount <= 0) return;
+                    payload.labels.push(`${label}x${pairCount}`);
+                    payload.passByDefenseGain += effect.passByDefenseGain ? effect.passByDefenseGain * pairCount : 0;
+                    payload.passByHeal += effect.passByHeal ? effect.passByHeal * pairCount : 0;
+                    payload.passByGold += effect.passByGold ? effect.passByGold * pairCount : 0;
+                    payload.passByAtk += effect.passByAtk ? effect.passByAtk * pairCount : 0;
+                    payload.pressureGoldLoss += effect.pressureGoldLoss ? effect.pressureGoldLoss * pairCount : 0;
+                    payload.pressureDamage += effect.pressureDamage ? effect.pressureDamage * pairCount : 0;
+                    payload.pressureDefenseBoost += effect.pressureDefenseBoost ? effect.pressureDefenseBoost * pairCount : 0;
+                    if (effect.disruptPrepared) payload.disruptPrepared = true;
+                    (effect.supportCardIds || []).forEach(cardId => {
+                        if (this.cardLibrary[cardId] && !payload.supportCardIds.includes(cardId)) {
+                            payload.supportCardIds.push(cardId);
+                        }
+                    });
+                    (effect.spoilCardIds || []).forEach(cardId => {
+                        if (this.cardLibrary[cardId] && !payload.spoilCardIds.includes(cardId)) {
+                            payload.spoilCardIds.push(cardId);
+                        }
+                    });
+                };
+
+                addCombo(
+                    Math.min(counts.COMMAND || 0, counts.TRAINING || 0),
+                    '军令突击',
+                    {
+                        passByAtk: 1,
+                        pressureDamage: 2,
+                        supportCardIds: ['WAR_BANNER'],
+                        spoilCardIds: ['PIKE_CHARGE']
+                    }
+                );
+
+                addCombo(
+                    Math.min(counts.WORKSHOP || 0, counts.GUARD || 0),
+                    '壁垒工事',
+                    {
+                        passByDefenseGain: 3,
+                        pressureDefenseBoost: 3,
+                        supportCardIds: ['TOWER_GUARD'],
+                        spoilCardIds: ['SIEGE_KIT']
+                    }
+                );
+
+                addCombo(
+                    Math.min(counts.BARRACKS || 0, counts.HEAL || 0),
+                    '后勤轮转',
+                    {
+                        passByHeal: 6,
+                        passByDefenseGain: 1,
+                        supportCardIds: ['FIELD_DRESS'],
+                        spoilCardIds: ['FIELD_DRESS']
+                    }
+                );
+
+                addCombo(
+                    Math.min(counts.TRAP || 0, counts.INCOME || 0),
+                    '暗线伏运',
+                    {
+                        passByGold: 12,
+                        pressureGoldLoss: 8,
+                        disruptPrepared: true,
+                        supportCardIds: ['SUPPLY_LINE'],
+                        spoilCardIds: ['AMBUSH']
+                    }
+                );
+
+                return payload;
+            },
+
+            getGuardTrainingComboSummary(slotOrGuards) {
+                const combo = this.getGuardTrainingComboPayload(slotOrGuards);
+                if (combo.labels.length === 0) return '暂无训练联动';
+                const parts = [...combo.labels];
+                if (combo.supportCardIds.length > 0) {
+                    parts.push(`筹备:${combo.supportCardIds.map(cardId => this.getCardDisplayName(cardId)).join('/')}`);
+                }
+                if (combo.spoilCardIds.length > 0) {
+                    parts.push(`战利品:${combo.spoilCardIds.map(cardId => this.getCardDisplayName(cardId)).join('/')}`);
+                }
+                return parts.join(' / ');
+            },
+
             getGuardSummary(slot, joiner = ' / ') {
                 if (!slot.guards || slot.guards.length === 0) return '无守军';
                 return slot.guards
@@ -2578,17 +2709,19 @@
                 const roleCounts = this.getGuardRoleCounts(slot);
                 const veterancy = this.getGuardVeterancyMetrics(slot);
                 const training = this.getGuardTrainingMetrics(slot);
+                const combo = this.getGuardTrainingComboPayload(slot);
                 const veteranDefenseBoost = veterancy.byRole.SHIELD + Math.floor(veterancy.totalVeterancy / 2);
                 const veteranGoldLoss = veterancy.byRole.SPEAR * 4 + veterancy.veteranCount * 2;
                 const veteranDamage = veterancy.byRole.SCOUT + veterancy.highestVeterancy * 2;
                 return {
-                    goldLoss: 8 + slot.level * 4 + roleCounts.SPEAR * 6 + roleCounts.total * 2 + veteranGoldLoss + training.pressureGoldBonus + (slot.type === 'COMMAND' ? 6 + roleCounts.total * 3 : 0),
-                    damage: roleCounts.SCOUT * (2 + Math.ceil(slot.level / 2)) + veteranDamage + training.pressureDamageBonus + (slot.type === 'GUARD' ? 3 + slot.level : 0) + (slot.type === 'COMMAND' ? 2 + slot.level : 0),
-                    defenseBoost: roleCounts.SHIELD * 2 + veteranDefenseBoost + training.defenseBoostBonus + (slot.type === 'GUARD' ? slot.level : 0),
-                    disruptPrepared: training.disruptSources > 0 || veterancy.byRole.SCOUT >= 3 || (veterancy.highestVeterancy >= 3 && veterancy.veteranCount >= 2),
+                    goldLoss: 8 + slot.level * 4 + roleCounts.SPEAR * 6 + roleCounts.total * 2 + veteranGoldLoss + training.pressureGoldBonus + combo.pressureGoldLoss + (slot.type === 'COMMAND' ? 6 + roleCounts.total * 3 : 0),
+                    damage: roleCounts.SCOUT * (2 + Math.ceil(slot.level / 2)) + veteranDamage + training.pressureDamageBonus + combo.pressureDamage + (slot.type === 'GUARD' ? 3 + slot.level : 0) + (slot.type === 'COMMAND' ? 2 + slot.level : 0),
+                    defenseBoost: roleCounts.SHIELD * 2 + veteranDefenseBoost + training.defenseBoostBonus + combo.pressureDefenseBoost + (slot.type === 'GUARD' ? slot.level : 0),
+                    disruptPrepared: combo.disruptPrepared || training.disruptSources > 0 || veterancy.byRole.SCOUT >= 3 || (veterancy.highestVeterancy >= 3 && veterancy.veteranCount >= 2),
                     roleCounts,
                     veterancy,
-                    training
+                    training,
+                    combo
                 };
             },
 
@@ -2605,12 +2738,16 @@
                 if (payload.disruptPrepared) {
                     parts.push('精锐斥候可能扰乱 1 张战前筹备');
                 }
+                if (payload.combo.labels.length > 0) {
+                    parts.push(`联动:${payload.combo.labels.join('/')}`);
+                }
                 return parts.join(' / ');
             },
 
             getOwnedVeteranSupportPayload(slot) {
                 const veterancy = this.getGuardVeterancyMetrics(slot);
                 const training = this.getGuardTrainingMetrics(slot);
+                const combo = this.getGuardTrainingComboPayload(slot);
                 const veteranSupport = this.getGuardVeterancyPackage(slot, `老兵值守:${this.getFacilityName(slot)}`);
                 if (!slot?.guards?.length) {
                     return {
@@ -2619,17 +2756,22 @@
                         goldGain: 0,
                         supportCardId: veteranSupport.cardIds[0] || null,
                         veterancy,
-                        training
+                        training,
+                        combo,
+                        comboCardIds: []
                     };
                 }
 
                 return {
-                    defenseGain: veterancy.byRole.SHIELD + Math.floor(veterancy.totalVeterancy / 3) + training.supportDefenseBonus,
-                    heal: veterancy.veteranCount + veterancy.highestVeterancy * 2 + training.supportHealBonus,
-                    goldGain: veterancy.byRole.SCOUT * 4 + (slot.type === 'INCOME' ? 4 + slot.level * 2 : 0) + training.supportGoldBonus,
+                    defenseGain: veterancy.byRole.SHIELD + Math.floor(veterancy.totalVeterancy / 3) + training.supportDefenseBonus + combo.passByDefenseGain,
+                    heal: veterancy.veteranCount + veterancy.highestVeterancy * 2 + training.supportHealBonus + combo.passByHeal,
+                    goldGain: veterancy.byRole.SCOUT * 4 + (slot.type === 'INCOME' ? 4 + slot.level * 2 : 0) + training.supportGoldBonus + combo.passByGold,
+                    atkGain: combo.passByAtk,
                     supportCardId: veteranSupport.cardIds[0] || null,
                     veterancy,
-                    training
+                    training,
+                    combo,
+                    comboCardIds: combo.supportCardIds.slice(0, 2)
                 };
             },
 
@@ -2642,7 +2784,9 @@
                 if (payload.defenseGain > 0) parts.push(`加固 +${payload.defenseGain} 防御`);
                 if (payload.heal > 0) parts.push(`整补 ${payload.heal} HP`);
                 if (payload.goldGain > 0) parts.push(`筹粮 +${payload.goldGain}G`);
+                if (payload.atkGain > 0) parts.push(`鼓舞 +${payload.atkGain} ATK`);
                 if (payload.supportCardId) parts.push(`筹备:${this.getCardDisplayName(payload.supportCardId)}`);
+                if (payload.combo.labels.length > 0) parts.push(`联动:${payload.combo.labels.join('/')}`);
                 return parts.join(' / ');
             },
 
@@ -2931,6 +3075,7 @@
                 const preview = this.getBuildingBattlePreview(slot);
                 const doctrineText = this.getGuardDoctrineSummaryText(slot, '驻军编成');
                 const trainingText = this.getGuardTrainingSummary(slot);
+                const trainingComboText = this.getGuardTrainingComboSummary(slot);
                 const veterancySupportText = this.getGuardVeterancySupportText(slot, '老兵支援');
                 const spoilsText = this.getFacilitySpoilsPreviewText(slot);
                 const passByLabel = ownedByPlayer ? '过路增援' : '路口施压';
@@ -2947,6 +3092,7 @@
                     ${this.infoRow('守军', guardText)}
                     ${this.infoRow('驻军编成', this.getGuardSummary(slot, ' | '))}
                     ${this.infoRow('驻军训练', trainingText)}
+                    ${this.infoRow('训练联动', trainingComboText)}
                     ${this.infoRow('守军特性', this.getGuardTraitSummary(slot))}
                     ${this.infoRow('守军历练', this.getGuardVeterancySummary(slot))}
                     ${this.infoRow('老兵支援', veterancySupportText)}
@@ -3525,11 +3671,24 @@
                     veteranLines.push(`筹来 ${veteranPayload.goldGain}G`);
                     this.createFloatingText(`老兵筹粮 +${veteranPayload.goldGain}G`, slot.mesh.position, "#eccc68");
                 }
+                if (veteranPayload.atkGain > 0) {
+                    player.atk += veteranPayload.atkGain;
+                    veteranLines.push(`鼓舞 +${veteranPayload.atkGain} ATK`);
+                    this.createFloatingText(`联动鼓舞 +${veteranPayload.atkGain}`, player.meshGroup.position, "#ffb142");
+                }
                 if (veteranLines.length > 0) {
                     this.log(`${this.getFacilityName(slot)} 的老兵值守额外带来：${veteranLines.join('，')}。`);
                 }
                 if (veteranPayload.supportCardId && this.queuePreparedBattleCard(player, veteranPayload.supportCardId, `老兵值守:${this.getFacilityName(slot)}`)) {
                     this.createFloatingText('+老兵筹备', slot.mesh.position, "#1e90ff");
+                }
+                veteranPayload.comboCardIds?.forEach(cardId => {
+                    if (this.queuePreparedBattleCard(player, cardId, `训练联动:${this.getFacilityName(slot)}`)) {
+                        this.createFloatingText(`+${this.getCardDisplayName(cardId)}`, slot.mesh.position, "#a55eea");
+                    }
+                });
+                if (veteranPayload.combo.labels.length > 0) {
+                    this.log(`${this.getFacilityName(slot)} 的训练联动被激活：${veteranPayload.combo.labels.join(' / ')}。`);
                 }
 
                 await this.wait(260);
@@ -3715,11 +3874,12 @@
                     const eliteCard = this.getFacilityEliteSupportCardId(source.slot);
                     const guardCards = [];
                     const roleCounts = this.getGuardRoleCounts(source.slot);
+                    const combo = this.getGuardTrainingComboPayload(source.slot);
                     if (roleCounts.SHIELD > 0) guardCards.push('TOWER_GUARD');
                     if (roleCounts.SPEAR > 0) guardCards.push('PIKE_CHARGE');
                     if (roleCounts.SCOUT > 0) guardCards.push('AMBUSH');
                     const veteranCards = this.getGuardVeterancyPackage(source.slot, 'Veteran Spoils').cardIds || [];
-                    return [...new Set([facilityCard, eliteCard, ...guardCards, ...veteranCards, ...basePool, 'HOLD_FAST', 'FLANK_ORDER', 'SHADOW_PATH', 'VETERAN_DRILL', 'FIELD_RATIONS'].filter(Boolean))];
+                    return [...new Set([facilityCard, eliteCard, ...guardCards, ...veteranCards, ...combo.spoilCardIds, ...combo.supportCardIds, ...basePool, 'HOLD_FAST', 'FLANK_ORDER', 'SHADOW_PATH', 'VETERAN_DRILL', 'FIELD_RATIONS'].filter(Boolean))];
                 }
                 if (source.kind === 'monster') {
                     return source.monster?.rewardPool?.length
@@ -3739,6 +3899,7 @@
                 const supportCardId = this.getFacilitySupportCardId(slot);
                 const eliteCardId = slot.level >= slot.maxLevel ? this.getFacilityEliteSupportCardId(slot) : null;
                 const roleCounts = this.getGuardRoleCounts(slot);
+                const combo = this.getGuardTrainingComboPayload(slot);
 
                 if (supportCardId && this.cardLibrary[supportCardId]) {
                     preparedCards.push({
@@ -3778,6 +3939,15 @@
                         preparedCards.push({
                             cardId,
                             sourceLabel: `缴获老兵经验:${facilityName}`
+                        });
+                    }
+                });
+
+                combo.spoilCardIds.forEach(cardId => {
+                    if (!preparedCards.some(entry => entry.cardId === cardId)) {
+                        preparedCards.push({
+                            cardId,
+                            sourceLabel: `训练联动战利品:${facilityName}`
                         });
                     }
                 });
@@ -4032,7 +4202,7 @@
             },
 
             async triggerGuardPressure(slot, player) {
-                const { goldLoss, damage, defenseBoost, roleCounts, veterancy, disruptPrepared } = this.getGuardPressurePayload(slot);
+                const { goldLoss, damage, defenseBoost, roleCounts, veterancy, combo, disruptPrepared } = this.getGuardPressurePayload(slot);
                 const toll = Math.min(player.gold, goldLoss);
                 const lines = [];
 
@@ -4073,6 +4243,9 @@
                 }
                 if (veterancy.veteranCount > 0) {
                     lines.push(`老兵协同让整段压制更老练`);
+                }
+                if (combo.labels.length > 0) {
+                    lines.push(`训练联动 ${combo.labels.join('/')}`);
                 }
 
                 this.log(`敌方 ${this.getFacilityName(slot)} 的守军出动施压：${lines.join('，')}。真正攻城要在行动阶段主动发起挑战。`);
@@ -4257,12 +4430,12 @@
                     const guardNote = this.canFacilityHostGuards(slot)
                         ? `守军 ${slot.guards.length}/${guardCapacity}`
                         : '不可驻防，但升级会更快提高防御';
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。路口施压：${this.getGuardPressurePreviewText(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。路口施压：${this.getGuardPressurePreviewText(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
                 
@@ -4314,12 +4487,12 @@
                     const guardNote = this.canFacilityHostGuards(slot)
                         ? `守军 ${slot.guards.length}/${guardCapacity}`
                         : '不可驻防，但升级会更快提高防御';
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。战术编成：${this.getGuardDoctrineSummaryText(slot, '驻军编成')}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。本路口支援：${this.getBattleSupportSummaryText(player)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。战术编成：${this.getGuardDoctrineSummaryText(slot, '驻军编成')}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。本路口支援：${this.getBattleSupportSummaryText(player)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
 
