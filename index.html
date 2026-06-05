@@ -734,6 +734,8 @@
             battleSnapshot: null,
             battleCameraFocus: null,
             battleHand: [],
+            battleSupportCards: [],
+            battleSupportSummary: [],
             diceOccluderSnapshots: [],
             wizardTradeResolver: null,
             wizardCardChoices: [],
@@ -744,7 +746,14 @@
                 GUARD_UP: { name: '架盾', kind: 'defend', block: 9, text: '本回合大幅减伤。' },
                 FIREBALL: { name: '火球', kind: 'skill', power: 16, text: '造成 ATK+16 技能伤害。' },
                 RALLY: { name: '振奋', kind: 'buff', atk: 2, text: '永久 ATK +2。' },
-                MEND: { name: '治愈', kind: 'heal', heal: 16, text: '恢复 16HP。' }
+                MEND: { name: '治愈', kind: 'heal', heal: 16, text: '恢复 16HP。' },
+                TOWER_GUARD: { name: '塔盾掩护', kind: 'defend', block: 13, text: '临时城防掩护，本回合获得更厚的格挡。' },
+                PIKE_CHARGE: { name: '枪阵突击', kind: 'skill', power: 13, text: '守军枪阵前压，造成 ATK+13 技能伤害。' },
+                FIELD_DRESS: { name: '战地包扎', kind: 'heal', heal: 12, text: '恢复 12HP，并稳住战线。' },
+                AMBUSH: { name: '侧翼伏击', kind: 'skill', power: 14, text: '斥候与机关配合，从侧翼打出 ATK+14。' },
+                WAR_BANNER: { name: '战旗推进', kind: 'buff', atk: 3, text: '本场作战士气高涨，永久 ATK +3。' },
+                SIEGE_KIT: { name: '攻城工包', kind: 'attack', power: 11, text: '工坊器具强拆城防，造成 ATK+11 伤害。' },
+                SUPPLY_LINE: { name: '补给线', kind: 'heal', heal: 10, text: '同路块后方补给赶到，恢复 10HP。' }
             },
             facilityConfigs: {
                 TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10, allowsGuards: true, guardSlots: 1 },
@@ -1701,6 +1710,90 @@
             getNodeOtherOwnedFacilities(slot) {
                 if (!slot?.owner) return [];
                 return this.getNodeOwnedFacilities(slot.owner).filter(other => other !== slot);
+            },
+
+            getFacilitySupportCardId(slot) {
+                const supportByType = {
+                    TRAP: 'AMBUSH',
+                    GUARD: 'TOWER_GUARD',
+                    INCOME: 'SUPPLY_LINE',
+                    HEAL: 'FIELD_DRESS',
+                    TRAINING: 'PIKE_CHARGE',
+                    BARRACKS: 'PIKE_CHARGE',
+                    COMMAND: 'WAR_BANNER',
+                    FORTRESS: 'TOWER_GUARD',
+                    WORKSHOP: 'SIEGE_KIT'
+                };
+                return supportByType[slot?.type] || null;
+            },
+
+            getFacilityEliteSupportCardId(slot) {
+                const eliteByType = {
+                    TRAP: 'AMBUSH',
+                    GUARD: 'SIEGE_KIT',
+                    INCOME: 'WAR_BANNER',
+                    HEAL: 'SUPPLY_LINE',
+                    TRAINING: 'WAR_BANNER',
+                    BARRACKS: 'TOWER_GUARD',
+                    COMMAND: 'PIKE_CHARGE',
+                    FORTRESS: 'SIEGE_KIT',
+                    WORKSHOP: 'TOWER_GUARD'
+                };
+                return eliteByType[slot?.type] || null;
+            },
+
+            getBattleSupportPackage(player) {
+                if (!player) return { cardIds: [], summary: [] };
+                const supportSlots = this.getNodeOwnedFacilities(player);
+                const cardIds = [];
+                const summary = [];
+
+                supportSlots.forEach(slot => {
+                    const baseCardId = this.getFacilitySupportCardId(slot);
+                    if (baseCardId && this.cardLibrary[baseCardId]) {
+                        cardIds.push(baseCardId);
+                        summary.push(`${this.getFacilityName(slot)}:${this.cardLibrary[baseCardId].name}`);
+                    }
+
+                    if (slot.level >= slot.maxLevel) {
+                        const eliteCardId = this.getFacilityEliteSupportCardId(slot);
+                        if (eliteCardId && this.cardLibrary[eliteCardId]) {
+                            cardIds.push(eliteCardId);
+                            summary.push(`${this.getFacilityName(slot)}精锐:${this.cardLibrary[eliteCardId].name}`);
+                        }
+                    }
+                });
+
+                const roleCounts = supportSlots.reduce((counts, slot) => {
+                    const local = this.getGuardRoleCounts(slot);
+                    counts.SHIELD += local.SHIELD;
+                    counts.SPEAR += local.SPEAR;
+                    counts.SCOUT += local.SCOUT;
+                    return counts;
+                }, { SHIELD: 0, SPEAR: 0, SCOUT: 0 });
+
+                if (roleCounts.SHIELD > 0) {
+                    cardIds.push('TOWER_GUARD');
+                    summary.push(`盾卫列阵:${this.cardLibrary.TOWER_GUARD.name}`);
+                }
+                if (roleCounts.SPEAR > 0) {
+                    cardIds.push('PIKE_CHARGE');
+                    summary.push(`枪兵前压:${this.cardLibrary.PIKE_CHARGE.name}`);
+                }
+                if (roleCounts.SCOUT > 0) {
+                    cardIds.push('AMBUSH');
+                    summary.push(`斥候潜行:${this.cardLibrary.AMBUSH.name}`);
+                }
+
+                return {
+                    cardIds: cardIds.slice(0, 8),
+                    summary: summary.slice(0, 8)
+                };
+            },
+
+            getBattleSupportSummaryText(player) {
+                const support = this.getBattleSupportPackage(player);
+                return support.summary.length > 0 ? support.summary.join(' / ') : '当前没有同路块战术支援';
             },
 
             resetGuardTransferMenu() {
@@ -2972,7 +3065,7 @@
                 // 阶段二：弹出菜单
                 if (slot.type === 'EMPTY' && slot.monster) {
                     this.setBuildMenuButtons('monster');
-                    document.getElementById('build-desc').innerText = `${slot.monster.name} 占着这块地。打败它后才能在这里建造。胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${slot.monster.name} 占着这块地。打败它后才能在这里建造。胜利不消耗行动，失败会消耗行动。本路块支援：${this.getBattleSupportSummaryText(player)}。`;
                 } else if (slot.type === 'EMPTY') {
                     this.setBuildMenuButtons('build');
                     document.getElementById('build-desc').innerText = "选择要建造的设施。兵营偏向练兵和补守军，指挥所负责整队联动，堡垒与城防工坊则更偏向堆墙和抬高攻城难度。建造会消耗当前行动。";
@@ -3003,7 +3096,7 @@
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
                 
@@ -3586,8 +3679,11 @@
                 });
             },
 
-            prepareBattleDeck(player) {
-                player.drawPile = this.shuffleCards([...(player.deck || [])]);
+            prepareBattleDeck(player, supportPackage = null) {
+                const supportCards = supportPackage?.cardIds || [];
+                this.battleSupportCards = [...supportCards];
+                this.battleSupportSummary = [...(supportPackage?.summary || [])];
+                player.drawPile = this.shuffleCards([...(player.deck || []), ...supportCards]);
                 player.discardPile = [];
                 this.battleHand = [];
             },
@@ -3625,6 +3721,7 @@
                     <div>抽牌堆 ${player.drawPile.length}</div>
                     <div>弃牌堆 ${player.discardPile.length}</div>
                     <div>手牌 ${hand.length}</div>
+                    <div>支援牌 ${this.battleSupportCards.length}</div>
                 `;
                 battleUi.appendChild(hud);
                 hand.forEach((cardId, index) => {
@@ -3679,6 +3776,7 @@
                     <div>抽牌堆 ${player.drawPile.length}</div>
                     <div>弃牌堆 ${player.discardPile.length}</div>
                     <div>手牌 ${this.battleHand.length}</div>
+                    <div>支援牌 ${this.battleSupportCards.length}</div>
                 `;
                 commandStack.appendChild(hud);
 
@@ -3737,6 +3835,12 @@
                     hint.className = 'battle-detail-copy';
                     hint.innerHTML = `<strong>技能预览</strong><span>本回合已抽到 ${this.battleHand.length} 张手牌。点“技能”后，再从这些卡里挑一张打出。</span>`;
                     cardRow.appendChild(hint);
+                }
+                if (this.battleSupportSummary.length > 0) {
+                    const supportHint = document.createElement('div');
+                    supportHint.className = 'battle-detail-copy';
+                    supportHint.innerHTML = `<strong>同路块支援</strong><span>${this.battleSupportSummary.join(' / ')}</span>`;
+                    cardRow.appendChild(supportHint);
                 }
                 detailPanel.appendChild(cardRow);
                 battleUi.appendChild(detailPanel);
@@ -4193,7 +4297,16 @@
 
                 await this.enterBattleScene(attacker, enemy);
                 await this.showTauntSequence(attacker, enemy, kind);
-                if (attacker.isPlayer) this.prepareBattleDeck(attacker);
+                if (attacker.isPlayer) {
+                    const supportPackage = this.getBattleSupportPackage(attacker);
+                    this.prepareBattleDeck(attacker, supportPackage);
+                    if (supportPackage.summary.length > 0) {
+                        this.log(`同路块支援已经并入本场牌库：${supportPackage.summary.join(' / ')}。`);
+                        this.createFloatingText('战术支援', attacker.meshGroup.position, "#70a1ff");
+                    } else {
+                        this.log("这场战斗没有同路块建筑或守军支援，只能靠当前牌库硬闯。");
+                    }
+                }
                 const enemyMesh = enemy.meshGroup || (sourceSlot ? sourceSlot.mesh : null);
                 const enemyPos = enemyMesh ? enemyMesh.position : attacker.meshGroup.position;
 
@@ -4349,6 +4462,8 @@
                 this.hideBattleStatus();
                 this.setBattlePhase(BattlePhase.NONE);
                 this.battleContext = null;
+                this.battleSupportCards = [];
+                this.battleSupportSummary = [];
                 this.transitionTo(TurnState.ACTION_SELECT);
                 return victory;
             },
@@ -4568,6 +4683,8 @@
                 this.resetGuardTransferMenu();
                 this.setBattlePhase(BattlePhase.NONE);
                 this.battleContext = null;
+                this.battleSupportCards = [];
+                this.battleSupportSummary = [];
                 this.setActionConsumed(false);
                 document.getElementById('build-menu').style.display = 'none';
                 document.getElementById('branch-menu').style.display = 'none';
