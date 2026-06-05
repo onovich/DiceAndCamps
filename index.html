@@ -4744,7 +4744,9 @@
                         training: enemy.training || { wallHpBonus: 0, wallArmorBonus: 0, guardArmorBonus: 0, dodgeBonus: 0, counterBonus: 0, phaseAtkBonus: 0 },
                         trainingCombo: enemy.trainingCombo || this.getGuardTrainingComboPayload(enemy.slot || []),
                         roleCounts: enemy.roleCounts || { SHIELD: 0, SPEAR: 0, SCOUT: 0, total: 0 },
-                        hasGuard: !!enemy.hasGuard
+                        hasGuard: !!enemy.hasGuard,
+                        slot: enemy.slot || null,
+                        meshGroup: enemy.meshGroup || enemy.slot?.facilityMesh || enemy.slot?.mesh || null
                     };
                 }
 
@@ -4759,6 +4761,8 @@
                         : '常规战斗',
                     intentLabel: '',
                     monsterType: enemy.key || null,
+                    monsterTrait: enemy.trait || '',
+                    meshGroup: enemy.meshGroup || null,
                     facilityType: enemy.facilityType || null,
                     facilityLevel: enemy.facilityLevel || 1
                 };
@@ -5051,30 +5055,77 @@
                 this.battleSnapshot = null;
             },
 
-            getTauntLines(attacker, enemy, kind) {
+            getTrainingComboBattleLine(combo) {
+                if (!combo?.labels?.length) return '';
+                if (combo.labels.some(label => label.startsWith('军令突击'))) return '军令和操练都已经合在一处了。';
+                if (combo.labels.some(label => label.startsWith('壁垒工事'))) return '工事和岗楼会把每一道裂口重新缝上。';
+                if (combo.labels.some(label => label.startsWith('后勤轮转'))) return '后勤轮转会让倒下的缺口立刻补上。';
+                if (combo.labels.some(label => label.startsWith('暗线伏运'))) return '暗线和伏袭已经把你来时的路摸透了。';
+                return `${combo.labels.join('、')} 已经布开。`;
+            },
+
+            getAttackerTauntLine(attacker, enemyState, kind) {
                 if (kind === 'monster') {
-                    return {
-                        hero: `${attacker.name}: 让开！这块地我要拿来扎营！`,
-                        enemy: `${enemy.name}: 咕噜咕噜！先赢过我再说！`
-                    };
+                    if ((attacker.preparedBattleCards?.length || 0) > 0) {
+                        return `${attacker.name}: 我连下一拍都备好了，你挡不住这条路。`;
+                    }
+                    return `${attacker.name}: 让开！这块地我要拿来扎营！`;
                 }
-                const wallLine = enemy.name.includes('城墙')
-                    ? `${enemy.name}: 墙不说话，但墙很硬！`
-                    : `${enemy.name}: 守军在城墙后等你很久了！`;
+
+                const prepared = attacker.preparedBattleSummary?.length || 0;
+                if (prepared >= 2) {
+                    return `${attacker.name}: 我连城下的第二手都准备好了，今天就把你的防线拆开。`;
+                }
+                if (enemyState.trainingCombo?.labels?.length > 0) {
+                    return `${attacker.name}: 你们这套联动我看见了，但我就是来拆它的。`;
+                }
+                if ((enemyState.veterancy?.highestVeterancy || 0) >= 2) {
+                    return `${attacker.name}: 老兵也好，厚墙也好，今天都得把门打开。`;
+                }
+                return `${attacker.name}: 开门，或者我自己打进去！`;
+            },
+
+            getDefenderTauntLine(enemyState, kind) {
+                if (kind === 'monster') {
+                    if (enemyState.monsterType === 'BRUTE') return `${enemyState.name}: 咚一声把你撞回去，看你还敢不敢扎营！`;
+                    if (enemyState.monsterType === 'SCOUT') return `${enemyState.name}: 你还没摸到边，我就能从侧影里切进来！`;
+                    if (enemyState.monsterType === 'CASTER') return `${enemyState.name}: 孢团已经鼓起来了，你走不出这片湿地！`;
+                    return `${enemyState.name}: 咕噜咕噜！先赢过我再说！`;
+                }
+
+                const comboLine = this.getTrainingComboBattleLine(enemyState.trainingCombo);
+                if (comboLine) {
+                    return `${enemyState.facilityName}: ${comboLine}`;
+                }
+                if ((enemyState.veterancy?.highestVeterancy || 0) >= 3) {
+                    return `${enemyState.facilityName}: 老兵已经把每一道口令和退路都排好了。`;
+                }
+                if ((enemyState.roleCounts?.SHIELD || 0) > 0) {
+                    return `${enemyState.facilityName}: 盾卫顶在前面，你只能先撞墙！`;
+                }
+                if ((enemyState.roleCounts?.SCOUT || 0) > 0) {
+                    return `${enemyState.facilityName}: 斥候早把你的动线报回墙后了。`;
+                }
+                return enemyState.phase === 'wall'
+                    ? `${enemyState.facilityName}: 墙不说话，但墙很硬。`
+                    : `${enemyState.facilityName}: 守军在城墙后等你很久了！`;
+            },
+
+            getTauntLines(attacker, enemyState, kind) {
                 return {
-                    hero: `${attacker.name}: 开门，或者我自己打进去！`,
-                    enemy: wallLine
+                    hero: this.getAttackerTauntLine(attacker, enemyState, kind),
+                    enemy: this.getDefenderTauntLine(enemyState, kind)
                 };
             },
 
-            async showTauntSequence(attacker, enemy, kind) {
+            async showTauntSequence(attacker, enemyState, kind) {
                 this.setBattlePhase(BattlePhase.TAUNT);
                 const layer = document.getElementById('taunt-layer');
                 const heroBox = document.getElementById('taunt-hero');
                 const enemyBox = document.getElementById('taunt-enemy');
-                const lines = this.getTauntLines(attacker, enemy, kind);
-                const enemyName = enemy.name;
-                const enemyFocus = enemy.meshGroup || enemy.slot?.mesh || attacker.meshGroup;
+                const lines = this.getTauntLines(attacker, enemyState, kind);
+                const enemyName = enemyState.name;
+                const enemyFocus = enemyState.meshGroup || enemyState.slot?.mesh || attacker.meshGroup;
                 layer.style.display = 'block';
                 heroBox.className = 'taunt-box';
                 enemyBox.className = 'taunt-box enemy';
@@ -5385,27 +5436,47 @@
             },
 
             getBattleResultPayload(victory, fled, attacker, enemyState) {
+                const comboLabel = enemyState?.trainingCombo?.labels?.[0] || '';
                 if (fled) {
+                    const retreatSub = enemyState?.facilityType
+                        ? `${attacker.name} 暂时从 ${enemyState.facilityName || enemyState.name} 的城下撤开，准备换个节奏再来。`
+                        : `${attacker.name} 暂时退出了这场战斗，准备下次再来。`;
                     return {
                         className: 'flee',
                         kicker: '战术撤离',
                         title: '脱离战场',
-                        sub: `${attacker.name} 暂时退出了这场战斗，准备下次再来。`
+                        sub: retreatSub
                     };
                 }
                 if (victory) {
+                    let victorySub = `${attacker.name} 压住了 ${enemyState.name}，这一轮的气势彻底打出来了。`;
+                    if (enemyState?.facilityType && comboLabel) {
+                        victorySub = `${attacker.name} 打散了 ${enemyState.facilityName} 的${comboLabel}，整座防线一下子就松开了。`;
+                    } else if (enemyState?.facilityType && (enemyState.veterancy?.highestVeterancy || 0) >= 2) {
+                        victorySub = `${attacker.name} 连老兵带城墙一起压穿，终于把 ${enemyState.facilityName} 的门撬开了。`;
+                    } else if (enemyState?.monsterType) {
+                        victorySub = `${attacker.name} 把 ${enemyState.name} 赶离了地块，前面的营地终于腾出来了。`;
+                    }
                     return {
                         className: 'victory',
                         kicker: '战斗结束',
                         title: '胜利',
-                        sub: `${attacker.name} 压住了 ${enemyState.name}，这一轮的气势彻底打出来了。`
+                        sub: victorySub
                     };
+                }
+                let defeatSub = `${attacker.name} 被 ${enemyState.name} 顶了回来，这一轮只能先收住阵脚。`;
+                if (enemyState?.facilityType && comboLabel) {
+                    defeatSub = `${enemyState.facilityName} 的${comboLabel}把阵脚咬得很紧，${attacker.name} 这一轮没能撕开口子。`;
+                } else if (enemyState?.facilityType && (enemyState.veterancy?.highestVeterancy || 0) >= 2) {
+                    defeatSub = `${enemyState.facilityName} 的老兵把节奏重新稳住了，${attacker.name} 只能先往后收。`;
+                } else if (enemyState?.monsterType) {
+                    defeatSub = `${enemyState.name} 把 ${attacker.name} 顶离了脚下这块地，得先缓一口气。`;
                 }
                 return {
                     className: 'defeat',
                     kicker: '战斗结束',
                     title: '败退',
-                    sub: `${attacker.name} 被 ${enemyState.name} 顶了回来，这一轮只能先收住阵脚。`
+                    sub: defeatSub
                 };
             },
 
@@ -5895,7 +5966,7 @@
                 this.updateBattleStatus(attacker, enemyState, 0);
 
                 await this.enterBattleScene(attacker, enemy);
-                await this.showTauntSequence(attacker, enemy, kind);
+                await this.showTauntSequence(attacker, enemyState, kind);
                 if (attacker.isPlayer) {
                     const supportPackage = this.getBattleSupportPackage(attacker);
                     this.prepareBattleDeck(attacker, supportPackage);
