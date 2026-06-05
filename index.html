@@ -1926,6 +1926,32 @@
                     .join(' / ');
             },
 
+            getGuardVeterancyMetrics(slotOrGuards) {
+                const guards = Array.isArray(slotOrGuards)
+                    ? slotOrGuards
+                    : (slotOrGuards?.guards || []);
+                const metrics = {
+                    totalVeterancy: 0,
+                    highestVeterancy: 0,
+                    veteranCount: 0,
+                    rankCounts: [0, 0, 0, 0],
+                    byRole: { SHIELD: 0, SPEAR: 0, SCOUT: 0 }
+                };
+
+                guards.forEach(guard => {
+                    const rank = Math.max(0, Math.min(3, guard.veterancy || 0));
+                    metrics.totalVeterancy += rank;
+                    metrics.highestVeterancy = Math.max(metrics.highestVeterancy, rank);
+                    metrics.rankCounts[rank] += 1;
+                    if (rank > 0) metrics.veteranCount += 1;
+                    if (metrics.byRole[guard.key] !== undefined) {
+                        metrics.byRole[guard.key] += rank;
+                    }
+                });
+
+                return metrics;
+            },
+
             getGuardVeterancyPackage(slotOrGuards, sourceLabel = '老兵支援') {
                 const guards = Array.isArray(slotOrGuards)
                     ? slotOrGuards
@@ -1934,21 +1960,8 @@
                     return { cardIds: [], summary: [] };
                 }
 
-                const roleCounts = { SHIELD: 0, SPEAR: 0, SCOUT: 0 };
-                let veteranCount = 0;
-                let highestVeterancy = 0;
-                let totalVeterancy = 0;
-                guards.forEach(guard => {
-                    const rank = guard.veterancy || 0;
-                    highestVeterancy = Math.max(highestVeterancy, rank);
-                    totalVeterancy += rank;
-                    if (rank > 0) {
-                        veteranCount += 1;
-                        if (roleCounts[guard.key] !== undefined) roleCounts[guard.key] += 1;
-                    }
-                });
-
-                if (veteranCount === 0) {
+                const veterancy = this.getGuardVeterancyMetrics(guards);
+                if (veterancy.veteranCount === 0) {
                     return { cardIds: [], summary: [] };
                 }
 
@@ -1961,8 +1974,8 @@
                 };
 
                 const dominantRole = ['SHIELD', 'SPEAR', 'SCOUT']
-                    .sort((a, b) => roleCounts[b] - roleCounts[a])[0];
-                if (roleCounts[dominantRole] > 0) {
+                    .sort((a, b) => veterancy.byRole[b] - veterancy.byRole[a])[0];
+                if (veterancy.byRole[dominantRole] > 0) {
                     const roleCardMap = {
                         SHIELD: ['HOLD_FAST', '老兵盾列'],
                         SPEAR: ['FLANK_ORDER', '老兵枪阵'],
@@ -1972,10 +1985,10 @@
                     pushCard(cardId, label);
                 }
 
-                if (highestVeterancy >= 2) {
+                if (veterancy.highestVeterancy >= 2) {
                     pushCard('VETERAN_DRILL', '资深指挥');
                 }
-                if (highestVeterancy >= 3 || totalVeterancy >= 5) {
+                if (veterancy.highestVeterancy >= 3 || veterancy.totalVeterancy >= 5) {
                     pushCard('FIELD_RATIONS', '老兵补给');
                 }
 
@@ -2277,6 +2290,7 @@
             getBuildingBattlePreview(slot) {
                 const hasGuard = slot.guards.length > 0;
                 const roleCounts = this.getGuardRoleCounts(slot);
+                const veterancy = this.getGuardVeterancyMetrics(slot);
                 const wallHp = Math.max(28, slot.defense * 2);
                 const emptyGuardPostWallBonus = slot.type === 'GUARD' && !hasGuard ? 10 + slot.level * 6 : 0;
                 const emptyGuardPostArmorBonus = slot.type === 'GUARD' && !hasGuard ? 2 + slot.level : 0;
@@ -2284,14 +2298,18 @@
                 const guardAtk = slot.guards.reduce((sum, guard) => sum + guard.atk, 0);
                 const fortressWallBonus = slot.type === 'FORTRESS' ? 18 + slot.level * 10 : 0;
                 const fortressArmorBonus = slot.type === 'FORTRESS' ? 4 + slot.level * 2 : 0;
-                const wallArmor = roleCounts.SHIELD * 3 + (slot.type === 'WORKSHOP' ? 2 + slot.level : 0) + fortressArmorBonus + emptyGuardPostArmorBonus;
-                const guardArmor = roleCounts.SHIELD * 2 + (slot.type === 'COMMAND' ? 1 + Math.floor(slot.level / 2) : 0);
-                const dodgeChance = Math.min(0.36, roleCounts.SCOUT * 0.08);
-                const counterBonus = roleCounts.SPEAR * 2;
-                const fortifiedWallHp = wallHp + roleCounts.SHIELD * 10 + fortressWallBonus + emptyGuardPostWallBonus;
-                const wallAtk = 3 + slot.level + Math.ceil(guardAtk * 0.45) + roleCounts.SPEAR + (slot.type === 'FORTRESS' ? 2 + slot.level : 0) + (slot.type === 'GUARD' && !hasGuard ? 1 + slot.level : 0);
+                const veteranWallArmor = veterancy.byRole.SHIELD + Math.floor(veterancy.totalVeterancy / 3);
+                const veteranGuardArmor = Math.floor(veterancy.byRole.SHIELD / 2) + Math.floor(veterancy.highestVeterancy / 2);
+                const veteranDodge = veterancy.byRole.SCOUT * 0.02 + veterancy.rankCounts[3] * 0.01;
+                const veteranCounter = veterancy.byRole.SPEAR;
+                const wallArmor = roleCounts.SHIELD * 3 + (slot.type === 'WORKSHOP' ? 2 + slot.level : 0) + fortressArmorBonus + emptyGuardPostArmorBonus + veteranWallArmor;
+                const guardArmor = roleCounts.SHIELD * 2 + (slot.type === 'COMMAND' ? 1 + Math.floor(slot.level / 2) : 0) + veteranGuardArmor;
+                const dodgeChance = Math.min(0.5, roleCounts.SCOUT * 0.08 + veteranDodge);
+                const counterBonus = roleCounts.SPEAR * 2 + veteranCounter;
+                const fortifiedWallHp = wallHp + roleCounts.SHIELD * 10 + fortressWallBonus + emptyGuardPostWallBonus + veterancy.byRole.SHIELD * 3 + veterancy.highestVeterancy * 2;
+                const wallAtk = 3 + slot.level + Math.ceil(guardAtk * 0.45) + roleCounts.SPEAR + (slot.type === 'FORTRESS' ? 2 + slot.level : 0) + (slot.type === 'GUARD' && !hasGuard ? 1 + slot.level : 0) + Math.floor(veterancy.totalVeterancy / 2);
                 const commandBonus = slot.type === 'COMMAND' ? 2 + roleCounts.total : 0;
-                const guardPhaseAtk = hasGuard ? 5 + slot.level * 2 + guardAtk + counterBonus + roleCounts.SCOUT + commandBonus : wallAtk;
+                const guardPhaseAtk = hasGuard ? 5 + slot.level * 2 + guardAtk + counterBonus + roleCounts.SCOUT + commandBonus + Math.floor(veterancy.totalVeterancy / 2) : wallAtk;
                 const atk = hasGuard ? wallAtk : guardPhaseAtk;
                 const hp = fortifiedWallHp + guardHp;
                 const battlePlanDetails = this.getFacilityBattlePlan(slot, hasGuard);
@@ -2313,6 +2331,7 @@
                     guardArmor,
                     dodgeChance,
                     counterBonus,
+                    veterancy,
                     roleCounts,
                     atk,
                     hp,
@@ -4013,7 +4032,7 @@
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
 
@@ -4180,6 +4199,7 @@
                     guardArmor: preview.guardArmor,
                     dodgeChance: preview.dodgeChance,
                     counterBonus: preview.counterBonus,
+                    veterancy: preview.veterancy,
                     roleCounts: preview.roleCounts,
                     hasGuard: preview.hasGuard,
                     phase: 'wall',
@@ -4211,6 +4231,7 @@
                         guardArmor: enemy.guardArmor || 0,
                         dodgeChance: enemy.dodgeChance || 0,
                         counterBonus: enemy.counterBonus || 0,
+                        veterancy: enemy.veterancy || { totalVeterancy: 0, highestVeterancy: 0, veteranCount: 0, rankCounts: [0,0,0,0], byRole: { SHIELD: 0, SPEAR: 0, SCOUT: 0 } },
                         roleCounts: enemy.roleCounts || { SHIELD: 0, SPEAR: 0, SCOUT: 0, total: 0 },
                         hasGuard: !!enemy.hasGuard
                     };
@@ -5037,6 +5058,15 @@
                         heal: 4 + (enemyState.roleCounts?.total || 0) * 2
                     };
                 }
+                if ((enemyState.veterancy?.highestVeterancy || 0) >= 3 && round % 3 === 0) {
+                    return {
+                        type: 'buff',
+                        name: '老兵镇线',
+                        label: '老兵指挥下的守军正在稳住阵线并重新校准节奏',
+                        atkGain: 3 + Math.min(4, enemyState.veterancy?.totalVeterancy || 0),
+                        heal: 6 + (enemyState.veterancy?.veteranCount || 0) * 2
+                    };
+                }
                 if (enemyState.facilityType === 'BARRACKS' && round % 2 === 0) {
                     return {
                         type: 'buff',
@@ -5080,6 +5110,23 @@
                         label: '守卫哨站正在纠合同位与城墙进行交叉打击',
                         damageBonus: 2 + (enemyState.facilityLevel || 1),
                         blockPierce: 1 + Math.min(2, enemyState.roleCounts?.SPEAR || 0)
+                    };
+                }
+                if ((enemyState.veterancy?.byRole?.SHIELD || 0) >= 2 && round % 3 === 1) {
+                    return {
+                        type: 'fortify',
+                        name: '老兵固守',
+                        label: '老兵盾卫把缺口重新堵住并加强了掩体',
+                        heal: 7 + Math.min(10, enemyState.veterancy.byRole.SHIELD * 2)
+                    };
+                }
+                if ((enemyState.veterancy?.byRole?.SCOUT || 0) >= 2 && round % 2 === 1) {
+                    return {
+                        type: 'attack',
+                        name: '影径潜袭',
+                        label: '老练斥候正沿着死角逼近并准备切入',
+                        damageBonus: 4 + enemyState.veterancy.byRole.SCOUT,
+                        blockPierce: 2
                     };
                 }
                 if ((enemyState.roleCounts?.SPEAR || 0) > 0) {
