@@ -3096,6 +3096,72 @@
                     }
                 );
 
+                addPlan(
+                    Math.min(counts.COMMAND || 0, counts.BARRACKS || 0, counts.TRAINING || 0),
+                    '军团操典',
+                    {
+                        passByAtk: 2,
+                        passByHeal: 6,
+                        pressureDamage: 3,
+                        supportCardIds: ['WAR_BANNER', 'PIKE_CHARGE', 'FLANK_ORDER'],
+                        spoilCardIds: ['FLANK_ORDER'],
+                        preparedCardIds: ['WAR_BANNER', 'PIKE_CHARGE'],
+                        extraDraw: 1,
+                        preferredBuildTypes: ['COMMAND', 'BARRACKS', 'TRAINING'],
+                        preferredGuardRoles: ['SPEAR', 'SCOUT']
+                    }
+                );
+
+                addPlan(
+                    Math.min(counts.FORTRESS || 0, counts.WORKSHOP || 0, counts.GUARD || 0),
+                    '铁壁哨戒',
+                    {
+                        passByDefenseGain: 6,
+                        passByHeal: 3,
+                        pressureDamage: 2,
+                        pressureDefenseBoost: 8,
+                        supportCardIds: ['TOWER_GUARD', 'HOLD_FAST'],
+                        spoilCardIds: ['HOLD_FAST'],
+                        preparedCardIds: ['TOWER_GUARD'],
+                        openingHeal: 4,
+                        preferredBuildTypes: ['FORTRESS', 'WORKSHOP', 'GUARD'],
+                        preferredGuardRoles: ['SHIELD']
+                    }
+                );
+
+                addPlan(
+                    Math.min(counts.HEAL || 0, counts.TRAINING || 0, counts.BARRACKS || 0),
+                    '战地轮训',
+                    {
+                        passByHeal: 10,
+                        passByAtk: 2,
+                        supportCardIds: ['FIELD_DRESS', 'VETERAN_DRILL'],
+                        spoilCardIds: ['FIELD_RATIONS'],
+                        preparedCardIds: ['FIELD_DRESS', 'VETERAN_DRILL'],
+                        extraDraw: 1,
+                        openingHeal: 8,
+                        preferredBuildTypes: ['HEAL', 'TRAINING', 'BARRACKS'],
+                        preferredGuardRoles: ['SPEAR', 'SCOUT']
+                    }
+                );
+
+                addPlan(
+                    Math.min(counts.INCOME || 0, counts.TRAP || 0, counts.GUARD || 0),
+                    '封锁税线',
+                    {
+                        passByGold: 22,
+                        passByDefenseGain: 2,
+                        pressureGoldLoss: 14,
+                        pressureDamage: 2,
+                        supportCardIds: ['SUPPLY_LINE', 'AMBUSH', 'SHADOW_PATH'],
+                        spoilCardIds: ['SHADOW_PATH'],
+                        preparedCardIds: ['SUPPLY_LINE', 'AMBUSH'],
+                        extraDraw: 1,
+                        preferredBuildTypes: ['INCOME', 'TRAP', 'GUARD'],
+                        preferredGuardRoles: ['SCOUT', 'SHIELD']
+                    }
+                );
+
                 return payload;
             },
 
@@ -3128,6 +3194,14 @@
                         targets.push(needType);
                     }
                 };
+                const addSetTargets = (types) => {
+                    const missing = types.filter(type => (counts[type] || 0) === 0);
+                    const presentCount = types.length - missing.length;
+                    if (presentCount < 2 || missing.length === 0) return;
+                    missing.forEach(type => {
+                        if (!targets.includes(type)) targets.push(type);
+                    });
+                };
                 addTarget('COMMAND', 'BARRACKS');
                 addTarget('BARRACKS', 'COMMAND');
                 addTarget('FORTRESS', 'WORKSHOP');
@@ -3136,6 +3210,10 @@
                 addTarget('TRAINING', 'HEAL');
                 addTarget('INCOME', 'TRAP');
                 addTarget('TRAP', 'INCOME');
+                addSetTargets(['COMMAND', 'BARRACKS', 'TRAINING']);
+                addSetTargets(['FORTRESS', 'WORKSHOP', 'GUARD']);
+                addSetTargets(['HEAL', 'TRAINING', 'BARRACKS']);
+                addSetTargets(['INCOME', 'TRAP', 'GUARD']);
                 return targets;
             },
 
