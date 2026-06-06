@@ -2483,6 +2483,142 @@
                 return added;
             },
 
+            getReserveDeploymentPayload(slot, guard) {
+                const payload = {
+                    defenseGain: 0,
+                    playerHeal: 0,
+                    goldRefund: 0,
+                    guardMaxHpGain: 0,
+                    guardHpGain: 0,
+                    guardAtkGain: 0,
+                    grantExp: 0,
+                    supportCardId: null,
+                    summary: []
+                };
+                if (!slot || !guard) return payload;
+
+                const sourceMatch = guard.capturedFrom && guard.capturedFrom === slot.type;
+                const level = slot.level || 1;
+
+                if (slot.type === 'TRAP') {
+                    payload.defenseGain += 2 + level;
+                    if (guard.key === 'SCOUT') {
+                        payload.guardAtkGain += 1;
+                        payload.supportCardId = 'AMBUSH';
+                    }
+                } else if (slot.type === 'GUARD') {
+                    payload.defenseGain += 3 + level * 2 + (guard.key === 'SHIELD' ? 3 : 0);
+                    payload.guardMaxHpGain += guard.key === 'SHIELD' ? 2 + level : 1;
+                    if (guard.key === 'SHIELD') payload.supportCardId = 'TOWER_GUARD';
+                } else if (slot.type === 'INCOME') {
+                    payload.goldRefund += 10 + level * 4 + (guard.key === 'SCOUT' ? 6 : 0);
+                    if (guard.key === 'SCOUT' || sourceMatch) payload.supportCardId = 'SUPPLY_LINE';
+                } else if (slot.type === 'HEAL') {
+                    payload.playerHeal += 6 + level * 2;
+                    payload.guardHpGain += 8 + level * 2;
+                    if (sourceMatch) payload.supportCardId = 'FIELD_DRESS';
+                } else if (slot.type === 'TRAINING') {
+                    payload.guardAtkGain += 1 + Math.floor(level / 2);
+                    payload.grantExp += 1;
+                    if (guard.key !== 'SHIELD') payload.supportCardId = 'PIKE_CHARGE';
+                } else if (slot.type === 'BARRACKS') {
+                    payload.guardMaxHpGain += 3 + level;
+                    payload.guardHpGain += 4 + level;
+                    payload.grantExp += 1;
+                    if (guard.key === 'SPEAR') {
+                        payload.guardAtkGain += 1;
+                        payload.supportCardId = 'PIKE_CHARGE';
+                    }
+                } else if (slot.type === 'COMMAND') {
+                    payload.playerHeal += 4 + level;
+                    payload.guardAtkGain += 1;
+                    if ((guard.veterancy || 0) >= 1 || sourceMatch) payload.supportCardId = 'WAR_BANNER';
+                } else if (slot.type === 'FORTRESS') {
+                    payload.defenseGain += 5 + level * 2 + (guard.key === 'SHIELD' ? 4 : 0);
+                    payload.guardMaxHpGain += 2 + level;
+                    payload.guardHpGain += 4 + level;
+                    payload.supportCardId = 'TOWER_GUARD';
+                } else if (slot.type === 'WORKSHOP') {
+                    payload.defenseGain += 4 + level * 2;
+                    payload.guardHpGain += 3 + level;
+                    if (guard.key === 'SHIELD') {
+                        payload.guardMaxHpGain += 2;
+                        payload.supportCardId = 'TOWER_GUARD';
+                    } else if (sourceMatch) {
+                        payload.supportCardId = 'SIEGE_KIT';
+                    }
+                }
+
+                if (sourceMatch) {
+                    payload.guardHpGain += 2;
+                    payload.guardAtkGain += 1;
+                }
+
+                if ((guard.veterancy || 0) >= 2) {
+                    payload.defenseGain += 1;
+                }
+
+                if (payload.defenseGain > 0) payload.summary.push(`城防 +${payload.defenseGain}`);
+                if (payload.playerHeal > 0) payload.summary.push(`整补 ${payload.playerHeal}HP`);
+                if (payload.goldRefund > 0) payload.summary.push(`回补 ${payload.goldRefund}G`);
+                if (payload.guardMaxHpGain > 0) payload.summary.push(`守军上限 +${payload.guardMaxHpGain}HP`);
+                if (payload.guardHpGain > 0) payload.summary.push(`入驻回复 ${payload.guardHpGain}HP`);
+                if (payload.guardAtkGain > 0) payload.summary.push(`守军 ATK +${payload.guardAtkGain}`);
+                if (payload.grantExp > 0) payload.summary.push(`历练 +${payload.grantExp}`);
+                if (payload.supportCardId) payload.summary.push(`筹备:${this.getCardDisplayName(payload.supportCardId)}`);
+                if (sourceMatch) payload.summary.push('原编制回归');
+                return payload;
+            },
+
+            getReserveDeploymentPreviewText(slot, guard) {
+                const payload = this.getReserveDeploymentPayload(slot, guard);
+                return payload.summary.length > 0
+                    ? payload.summary.join(' / ')
+                    : '仅按原训练入驻';
+            },
+
+            applyReserveDeploymentPayload(player, slot, guard) {
+                const payload = this.getReserveDeploymentPayload(slot, guard);
+                if (!player || !slot || !guard) return payload;
+
+                if (payload.defenseGain > 0) {
+                    slot.defense += payload.defenseGain;
+                    this.updateFacilityVisual(slot);
+                    this.createFloatingText(`城防 +${payload.defenseGain}`, slot.mesh.position, "#70a1ff");
+                }
+                if (payload.guardMaxHpGain > 0) {
+                    guard.maxHp += payload.guardMaxHpGain;
+                }
+                if (payload.guardHpGain > 0 || payload.guardMaxHpGain > 0) {
+                    guard.hp = Math.min(guard.maxHp, guard.hp + payload.guardHpGain + payload.guardMaxHpGain);
+                }
+                if (payload.guardAtkGain > 0) {
+                    guard.atk += payload.guardAtkGain;
+                }
+                if (payload.grantExp > 0) {
+                    this.grantGuardExp(guard, payload.grantExp);
+                }
+                if (payload.playerHeal > 0) {
+                    const before = player.hp;
+                    player.hp = Math.min(player.maxHp, player.hp + payload.playerHeal);
+                    const healed = player.hp - before;
+                    if (healed > 0) {
+                        this.createFloatingText(`+${healed}HP`, player.meshGroup.position, "#2ed573");
+                    }
+                }
+                if (payload.goldRefund > 0) {
+                    player.gold += payload.goldRefund;
+                    this.createFloatingText(`+${payload.goldRefund}G`, slot.mesh.position, "#eccc68");
+                }
+                if (payload.supportCardId && this.queuePreparedBattleCard(player, payload.supportCardId, `预备部署:${this.getFacilityName(slot)}`)) {
+                    this.createFloatingText(`+${this.getCardDisplayName(payload.supportCardId)}`, slot.mesh.position, "#a55eea");
+                }
+                if (payload.summary.length > 0) {
+                    this.log(`${guard.name} 入驻 ${this.getFacilityName(slot)} 后触发整编：${payload.summary.join('，')}。`);
+                }
+                return payload;
+            },
+
             grantGuardExp(guard, amount = 1) {
                 if (!guard || amount <= 0) {
                     return { leveledUp: false, beforeRank: guard?.veterancy || 0, afterRank: guard?.veterancy || 0 };
@@ -3401,7 +3537,7 @@
                 return {
                     title: `${archetype.name} (${baseHp}HP / ${baseAtk}ATK)`,
                     text: `${traitText[archetype.key] || '可部署守军。'} ${training.label}：${training.description} ${reserve
-                        ? `可直接调用预备队里的 ${this.getGuardReserveDisplayName(reserve)}，当前安插花费 ${cost}G。`
+                        ? `可直接调用预备队里的 ${this.getGuardReserveDisplayName(reserve)}，当前安插花费 ${cost}G。落位效果：${this.getReserveDeploymentPreviewText(slot, reserve)}。`
                         : `直接招募花费 ${cost}G。`}`
                 };
             },
@@ -4104,6 +4240,7 @@
                     ${this.infoRow('牌库', `${player.deck.length} 张`)}
                     ${this.infoRow('筹备', `${player.preparedBattleCards?.length || 0} 张`)}
                     ${this.infoRow('预备', `${player.guardReserves?.length || 0} 名`)}
+                    ${this.infoRow('预备编成', this.getGuardReserveSummaryText(player, ' | '))}
                 `;
             },
 
@@ -7375,6 +7512,9 @@
                 guard.hp = guard.maxHp;
                 slot.guards.push(guard);
                 slot.defense += (reserve ? 4 : 6) + slot.level * 2;
+                if (reserve) {
+                    this.applyReserveDeploymentPayload(player, slot, guard);
+                }
                 this.updateGuardMarkers(slot);
                 this.createFloatingText("+守军", slot.mesh.position, "#1e90ff");
                 this.log(reserve
