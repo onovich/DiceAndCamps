@@ -4761,6 +4761,37 @@
                 return { cardId, summary };
             },
 
+            peekPreparedBattleCard(player) {
+                if (!player?.preparedBattleCards?.length) return null;
+                const index = player.preparedBattleCards.length - 1;
+                const cardId = player.preparedBattleCards[index];
+                const summary = player.preparedBattleSummary?.[index] || this.getCardDisplayName(cardId);
+                return { cardId, summary };
+            },
+
+            getPreparedBattleSupportPreviewText(player) {
+                const prepared = this.peekPreparedBattleCard(player);
+                if (!prepared) return '暂无战前筹备';
+                const card = this.cardLibrary[prepared.cardId];
+                if (!card) return prepared.summary;
+
+                if (card.kind === 'heal') {
+                    const heal = Math.max(4, Math.floor((card.heal || 0) * 0.7));
+                    return `${card.name}:开场整补 ${heal} HP`;
+                }
+                if (card.kind === 'defend') {
+                    const armorGain = Math.max(1, Math.floor((card.block || 8) / 4));
+                    return `${card.name}:开场护甲 +${armorGain}`;
+                }
+                if (card.kind === 'buff') {
+                    const atkGain = Math.max(1, card.atk || 1);
+                    return `${card.name}:开场攻势 +${atkGain}`;
+                }
+
+                const atkGain = Math.max(1, Math.ceil((card.power || 6) / 6));
+                return `${card.name}:首轮突击 +${atkGain}`;
+            },
+
             applyEnemyPreparedBattleSupport(enemyState) {
                 const owner = enemyState?.slot?.owner;
                 if (!owner || !enemyState?.facilityType) return null;
@@ -4778,7 +4809,9 @@
                     tauntLine: `墙后已经把 ${card.name} 准备好了，就等你撞上来。`,
                     visualText: card.name,
                     visualColor: "#ff9f43",
-                    logLine: `敌方把 ${card.name} 调进了这场守城战。`
+                    logLine: `敌方把 ${card.name} 调进了这场守城战。`,
+                    previewText: this.getPreparedBattleSupportPreviewText({ preparedBattleCards: [prepared.cardId], preparedBattleSummary: [prepared.summary] }),
+                    openingAction: null
                 };
 
                 if (card.kind === 'heal') {
@@ -4793,6 +4826,13 @@
                     support.visualColor = "#2ed573";
                     support.logLine = `敌方在开战前启用了 ${card.name}，当前阶段恢复 ${heal} HP。`;
                     support.tauntLine = `${card.name} 已经送到墙后，你先想想怎么破开这口气。`;
+                    support.openingAction = {
+                        type: 'fortify',
+                        name: `${card.name}续整`,
+                        label: `${card.name} 还会在交锋开始时稳住战线`,
+                        heal: Math.max(3, Math.floor(heal / 2)),
+                        fromPreparedSupport: true
+                    };
                     return support;
                 }
 
@@ -4807,6 +4847,13 @@
                     support.visualColor = "#70a1ff";
                     support.logLine = `敌方在战前展开 ${card.name}，当前阶段护甲 +${armorGain}。`;
                     support.tauntLine = `${card.name} 已经压到前线了，你第一轮砸上来也只会先碰墙。`;
+                    support.openingAction = {
+                        type: 'fortify',
+                        name: `${card.name}顶门`,
+                        label: `${card.name} 的前线盾列正在卡死入口`,
+                        heal: Math.max(3, armorGain * 2),
+                        fromPreparedSupport: true
+                    };
                     return support;
                 }
 
@@ -4822,6 +4869,23 @@
                 support.visualColor = "#ffb142";
                 support.logLine = `敌方在开战前压上 ${card.name}，本场攻势 +${atkGain}。`;
                 support.tauntLine = `${card.name} 已经送到阵前了，今天先拿你试刀。`;
+                support.openingAction = card.kind === 'buff'
+                    ? {
+                        type: 'buff',
+                        name: `${card.name}压阵`,
+                        label: `${card.name} 让守城方先稳住士气再压出来`,
+                        atkGain: Math.max(1, Math.ceil(atkGain / 2)),
+                        heal: 0,
+                        fromPreparedSupport: true
+                    }
+                    : {
+                        type: 'attack',
+                        name: card.name,
+                        label: `${card.name} 会在守城战第一轮直接砸下来`,
+                        damageBonus: atkGain + (card.kind === 'skill' ? 2 : 1),
+                        blockPierce: card.kind === 'skill' ? 2 : 1,
+                        fromPreparedSupport: true
+                    };
                 return support;
             },
 
@@ -4938,13 +5002,10 @@
                 const atk = hasGuard ? wallAtk : guardPhaseAtk;
                 const hp = fortifiedWallHp + guardHp;
                 const battlePlanDetails = this.getFacilityBattlePlan(slot, hasGuard);
-                const battlePlan = slot.type === 'FORTRESS'
-                    ? '只有厚重堡墙，但会持续加固并压制来犯者'
-                    : (slot.type === 'GUARD' && !hasGuard
-                    ? '空哨站没有守军，只有更厚的墙体与岗楼火力'
-                    : (slot.type === 'COMMAND' && hasGuard
-                    ? '守军会在指挥所号令下整队反扑'
-                    : (hasGuard ? '守军躲在城墙后' : '只有城墙')));
+                const preparedSupport = this.getPreparedBattleSupportPreviewText(slot.owner);
+                const battlePlan = preparedSupport === '暂无战前筹备'
+                    ? battlePlanDetails
+                    : `${battlePlanDetails}；敌方战前筹备：${preparedSupport}`;
                 return {
                     hasGuard,
                     wallHp: fortifiedWallHp,
@@ -4961,7 +5022,7 @@
                     roleCounts,
                     atk,
                     hp,
-                    battlePlan: battlePlanDetails,
+                    battlePlan,
                     label: hasGuard ? '守军+城墙' : '墙壁战'
                 };
             },
@@ -7956,6 +8017,9 @@
                 }
 
                 const combo = enemyState.trainingCombo || { labels: [], passByHeal: 0, passByAtk: 0, passByDefenseGain: 0, pressureDamage: 0, pressureGoldLoss: 0 };
+                if (round === 1 && enemyState.preparedSupport?.openingAction) {
+                    return enemyState.preparedSupport.openingAction;
+                }
 
                 if (enemyState.phase === 'wall') {
                     if (combo.labels.some(label => label.startsWith('壁垒工事')) && round % 2 === 0) {
