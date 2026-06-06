@@ -4149,6 +4149,91 @@
                 };
             },
 
+            getReserveLineageCommandPackage(player) {
+                const reserves = player?.guardReserves || [];
+                if (reserves.length === 0) {
+                    return { cardIds: [], summary: [], extraDraw: 0, openingHeal: 0 };
+                }
+
+                const lineageCounts = reserves.reduce((result, guard) => {
+                    const lineage = this.getReserveLineageProfile(guard);
+                    if (!result[lineage.key]) {
+                        result[lineage.key] = {
+                            count: 0,
+                            highestMaturity: 0
+                        };
+                    }
+                    result[lineage.key].count += 1;
+                    result[lineage.key].highestMaturity = Math.max(result[lineage.key].highestMaturity, lineage.maturity || 0);
+                    return result;
+                }, {});
+
+                const cardIds = [];
+                const summary = [];
+                let extraDraw = 0;
+                let openingHeal = 0;
+
+                const addCard = (cardId, label) => {
+                    if (!cardId || !this.cardLibrary[cardId] || cardIds.includes(cardId)) return;
+                    cardIds.push(cardId);
+                    summary.push(`预备战略:${label}:${this.getCardDisplayName(cardId)}`);
+                };
+                const hasLineage = (key) => !!lineageCounts[key]?.count;
+                const isElite = (key) => (lineageCounts[key]?.highestMaturity || 0) >= 5;
+
+                if (hasLineage('VANGUARD')) {
+                    addCard('WAR_BANNER', '先锋预备');
+                    if (isElite('VANGUARD')) addCard('FLANK_ORDER', '王牌先锋');
+                }
+                if (hasLineage('WARDEN')) {
+                    addCard('TOWER_GUARD', '卫垒预备');
+                    if (isElite('WARDEN')) addCard('HOLD_FAST', '王牌卫垒');
+                }
+                if (hasLineage('QUARTERMASTER')) {
+                    addCard('SUPPLY_LINE', '军需预备');
+                    openingHeal += 4;
+                    summary.push('预备战略:军需预备:战前整补 4HP');
+                    if (isElite('QUARTERMASTER')) addCard('FIELD_RATIONS', '王牌军需');
+                }
+                if (hasLineage('SAPPER')) {
+                    addCard('SIEGE_KIT', '战匠预备');
+                    if (isElite('SAPPER')) addCard('HOLD_FAST', '战匠固守');
+                }
+                if (hasLineage('RAIDER')) {
+                    addCard('AMBUSH', '奇袭预备');
+                    extraDraw += 1;
+                    summary.push('预备战略:奇袭预备:本场多抽 1 张');
+                    if (isElite('RAIDER')) addCard('SHADOW_PATH', '王牌奇袭');
+                }
+
+                if (hasLineage('VANGUARD') && hasLineage('QUARTERMASTER')) {
+                    extraDraw += 1;
+                    openingHeal += 4;
+                    addCard('FIELD_RATIONS', '远征兵站');
+                    summary.push('预备联动:远征兵站:本场多抽 1 张 / 战前整补 4HP');
+                }
+                if (hasLineage('WARDEN') && hasLineage('SAPPER')) {
+                    addCard('HOLD_FAST', '攻守辎堡');
+                    summary.push('预备联动:攻守辎堡:厚重掩护待命');
+                }
+                if (hasLineage('RAIDER') && hasLineage('QUARTERMASTER')) {
+                    extraDraw += 1;
+                    addCard('SHADOW_PATH', '暗线补给');
+                    summary.push('预备联动:暗线补给:本场多抽 1 张');
+                }
+                if (hasLineage('VANGUARD') && hasLineage('WARDEN') && hasLineage('RAIDER')) {
+                    addCard('FLANK_ORDER', '主力突击群');
+                    summary.push('预备联动:主力突击群:战前形成包抄序列');
+                }
+
+                return {
+                    cardIds: cardIds.slice(0, 5),
+                    summary: summary.slice(0, 7),
+                    extraDraw: Math.min(2, extraDraw),
+                    openingHeal
+                };
+            },
+
             getBattleSupportPackage(player) {
                 if (!player) return { cardIds: [], summary: [] };
                 const supportSlots = this.getNodeOwnedFacilities(player);
@@ -4210,6 +4295,12 @@
                     extraDraw += comboSupport.extraDraw || 0;
                     openingHeal += comboSupport.openingHeal || 0;
                 });
+
+                const reserveCommand = this.getReserveLineageCommandPackage(player);
+                reserveCommand.cardIds.forEach(cardId => cardIds.push(cardId));
+                reserveCommand.summary.forEach(line => summary.push(line));
+                extraDraw += reserveCommand.extraDraw || 0;
+                openingHeal += reserveCommand.openingHeal || 0;
 
                 return {
                     cardIds: cardIds.slice(0, 10),
