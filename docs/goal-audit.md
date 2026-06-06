@@ -77,6 +77,7 @@ There is now a repeatable debug/runtime-proof harness in `index.html` plus captu
     Those reserves now also keep a lightweight training history through a drill count and current focus, so repeated peacetime handling leaves visible fingerprints on later deployment value instead of every reserve behaving like an interchangeable coupon.
     Siege victories now also have one more persistent downstream hook: defended enemy buildings can yield facility-aligned command manuals such as 先锋/卫垒/军需 orders, and those manuals are then consumed on later recruitment or reserve deployment to grant targeted fortify, heal, gold, experience, and prepared-card boosts. That lets one successful assault echo directly into the next garrisoning decision instead of only paying out in cards, gold, or raw reserve bodies.
     Those command manuals are now no longer siege-only drops either: owned barracks, command posts, training grounds, healing sites, and workshops can also draft, retune, or upgrade them during pass-by events, which turns route planning itself into a way of shaping what kind of post-battle garrison support the player will have available later.
+    Enemy factions now participate in that same loop as well: their owned building events can grow and retune command manuals before later AI recruitment consumes them, so enemy garrisons increasingly reflect the route infrastructure they have been allowed to maintain.
     Still not at the original “fully fleshed out content layer” target.
 
 18. `Complete`  

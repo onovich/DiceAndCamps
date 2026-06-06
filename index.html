@@ -4374,6 +4374,31 @@
                 return `${manual.title}:${manual.preview}`;
             },
 
+            getBestRecruitRoleWithCommandManual(player, slot, fallbackRole = null) {
+                const affordable = this.guardArchetypes
+                    .filter(archetype => player.gold >= this.getGuardRecruitOptionCost(player, slot, archetype.key));
+                if (affordable.length === 0) return fallbackRole;
+
+                const scored = affordable
+                    .map(archetype => ({
+                        key: archetype.key,
+                        score: (() => {
+                            let score = 0;
+                            if (archetype.key === fallbackRole) score += 3;
+                            const manualIndex = this.findRecruitCommandManualIndex(player, slot, archetype.key);
+                            if (manualIndex >= 0) {
+                                const manual = player.commandManuals[manualIndex];
+                                score += 5 + (manual?.potency || 1);
+                                if (manual?.preferredRoles?.includes(archetype.key)) score += 2;
+                            }
+                            return score;
+                        })()
+                    }))
+                    .sort((a, b) => b.score - a.score);
+
+                return scored[0]?.key || fallbackRole || affordable[0]?.key || null;
+            },
+
             getRoleCommandManualKey(roleKey, fallback = 'VANGUARD') {
                 const map = {
                     SHIELD: 'WARDEN',
@@ -5869,6 +5894,7 @@
                     });
                     this.processOwnedFacilityCommandManual(player, slot);
                     this.grantSlotGuardExp(slot, 2, '训练营操练');
+                    this.processOwnedFacilityCommandManual(slot.owner, slot);
                 } else if (slot.type === 'BARRACKS') {
                     const guardHeal = 7 + slot.level * 3;
                     let trained = 0;
@@ -5915,6 +5941,7 @@
                     this.processOwnedFacilityCommandManual(player, slot);
                     if (trained > 0) {
                         this.grantSlotGuardExp(slot, 2, '兵营整训');
+                    this.processOwnedFacilityCommandManual(slot.owner, slot);
                     }
                 } else if (slot.type === 'WORKSHOP') {
                     const selfFortify = 4 + slot.level * 2;
@@ -6420,12 +6447,14 @@
                     const actual = slot.owner.hp - before;
                     this.log(`敌方治疗营地为 ${slot.owner.name} 恢复 ${actual} HP。`);
                     this.createFloatingText(`+${actual}HP`, slot.mesh.position, "#2ed573");
+                    this.processOwnedFacilityCommandManual(slot.owner, slot);
                 } else if (slot.type === 'TRAINING') {
                     const atkGain = 1 + Math.floor(slot.level / 2);
                     slot.owner.atk += atkGain;
                     this.grantSlotGuardExp(slot, 1, '敌方操练');
                     this.log(`敌方训练营强化了 ${slot.owner.name}，ATK +${atkGain}。`);
                     this.createFloatingText(`敌方ATK +${atkGain}`, slot.mesh.position, "#ffb142");
+                    this.processOwnedFacilityCommandManual(slot.owner, slot);
                 } else if (slot.type === 'BARRACKS') {
                     const guardHeal = 6 + slot.level * 2;
                     slot.guards.forEach(guard => {
@@ -6451,8 +6480,9 @@
                         this.createFloatingText("敌方整训", slot.mesh.position, "#ff7f50");
                     }
                     if (slot.guards.length > 0) {
-                        this.grantSlotGuardExp(slot, 2, '敌方整训');
+                        this.grantSlotGuardExp(slot, 2, '鏁屾柟鏁磋');
                     }
+                    this.processOwnedFacilityCommandManual(slot.owner, slot);
                 } else if (slot.type === 'COMMAND') {
                     const allied = this.getNodeOwnedFacilities(slot.owner);
                     const guards = allied.flatMap(other => other.guards || []);
@@ -6468,6 +6498,7 @@
                     slot.owner.atk += 1;
                     this.log(`敌方指挥所吹响了集结号，整编了同路块守军与防线。`);
                     this.createFloatingText("敌方集结", slot.mesh.position, "#4b7bec");
+                    this.processOwnedFacilityCommandManual(slot.owner, slot);
                     allied.forEach(other => this.grantSlotGuardExp(other, 1, '敌方整队'));
                 } else if (slot.type === 'FORTRESS') {
                     const fortify = 7 + slot.level * 4;
@@ -6494,6 +6525,7 @@
                     this.updateFacilityVisual(slot);
                     this.log(`敌方城防工坊抢先加固了防线，墙体明显更厚了。`);
                     this.createFloatingText("敌方加固", slot.mesh.position, "#747d8c");
+                    this.processOwnedFacilityCommandManual(slot.owner, slot);
                 }
 
                 if (slot.guards.length > 0) {
@@ -6675,6 +6707,7 @@
                 if (recruitable.length > 0) {
                     const slot = recruitable[0];
                     let roleKey = this.getNodePreferredGuardRole(slot, ownedSlots);
+                    roleKey = this.getBestRecruitRoleWithCommandManual(player, slot, roleKey);
                     if (player.gold < this.getGuardRecruitOptionCost(player, slot, roleKey)) {
                         roleKey = this.guardArchetypes.find(archetype =>
                             player.gold >= this.getGuardRecruitOptionCost(player, slot, archetype.key)
@@ -6762,7 +6795,7 @@
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。路口施压：${this.getGuardPressurePreviewText(slot)}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。预备战略：${this.getReserveStrategySummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。路口施压：${this.getGuardPressurePreviewText(slot)}。敌方军令库存：${this.getCommandManualSummaryText(slot.owner)}。补员军令：${this.getRecruitCommandManualPreviewText(slot.owner, slot, this.getNodePreferredGuardRole(slot, this.getNodeOwnedFacilities(slot.owner)))}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。预备战略：${this.getReserveStrategySummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
                 
@@ -6821,7 +6854,7 @@
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。路口计划：${this.getNodeBattlefrontSummaryText(this.getNodeOwnedFacilities(slot.owner), '敌方战区计划')}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。预备战略：${this.getReserveStrategySummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot, player)}。军令缴获预期：${this.getFacilityCommandManualPreviewText(slot)}。可收编：${this.getFacilityGuardCapturePreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。路口计划：${this.getNodeBattlefrontSummaryText(this.getNodeOwnedFacilities(slot.owner), '敌方战区计划')}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。敌方军令库存：${this.getCommandManualSummaryText(slot.owner)}。补员军令：${this.getRecruitCommandManualPreviewText(slot.owner, slot, this.getNodePreferredGuardRole(slot, this.getNodeOwnedFacilities(slot.owner)))}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。预备战略：${this.getReserveStrategySummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot, player)}。军令缴获预期：${this.getFacilityCommandManualPreviewText(slot)}。可收编：${this.getFacilityGuardCapturePreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
 
