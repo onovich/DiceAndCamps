@@ -2735,6 +2735,403 @@
                 return payload;
             },
 
+            getReserveLineageProfile(guard) {
+                if (!guard) {
+                    return {
+                        key: 'UNTRAINED',
+                        name: '待整编',
+                        shortLabel: '待整',
+                        rankLabel: '未定型',
+                        focusType: 'EMPTY',
+                        preferredSlots: [],
+                        supportCardId: null,
+                        eliteSupportCardId: null,
+                        maturity: 0,
+                        summary: '待整编'
+                    };
+                }
+
+                const focusType = guard.reserveFocus || guard.capturedFrom || guard.training?.sourceType || 'EMPTY';
+                const maturity = (guard.reserveDrill || 0) + (guard.veterancy || 0);
+                const rankLabel = maturity >= 5 ? '王牌' : (maturity >= 3 ? '熟练' : '新编');
+                const profileMap = {
+                    VANGUARD: {
+                        name: '先锋',
+                        shortLabel: '先锋',
+                        preferredSlots: ['COMMAND', 'TRAINING', 'BARRACKS'],
+                        supportCardId: 'WAR_BANNER',
+                        eliteSupportCardId: 'FLANK_ORDER'
+                    },
+                    WARDEN: {
+                        name: '卫垒',
+                        shortLabel: '卫垒',
+                        preferredSlots: ['FORTRESS', 'GUARD', 'BARRACKS'],
+                        supportCardId: 'TOWER_GUARD',
+                        eliteSupportCardId: 'HOLD_FAST'
+                    },
+                    QUARTERMASTER: {
+                        name: '军需',
+                        shortLabel: '军需',
+                        preferredSlots: ['HEAL', 'INCOME', 'COMMAND'],
+                        supportCardId: 'SUPPLY_LINE',
+                        eliteSupportCardId: 'FIELD_RATIONS'
+                    },
+                    SAPPER: {
+                        name: '战匠',
+                        shortLabel: '战匠',
+                        preferredSlots: ['WORKSHOP', 'FORTRESS', 'GUARD'],
+                        supportCardId: 'SIEGE_KIT',
+                        eliteSupportCardId: 'HOLD_FAST'
+                    },
+                    RAIDER: {
+                        name: '奇袭',
+                        shortLabel: '奇袭',
+                        preferredSlots: ['TRAP', 'INCOME', 'TRAINING'],
+                        supportCardId: 'AMBUSH',
+                        eliteSupportCardId: 'SHADOW_PATH'
+                    }
+                };
+
+                let key = 'QUARTERMASTER';
+                if (focusType === 'WORKSHOP') key = 'SAPPER';
+                else if (focusType === 'TRAP') key = 'RAIDER';
+                else if (['COMMAND', 'TRAINING', 'BARRACKS'].includes(focusType)) key = 'VANGUARD';
+                else if (['FORTRESS', 'GUARD'].includes(focusType)) key = 'WARDEN';
+                else if (['HEAL', 'INCOME'].includes(focusType)) key = 'QUARTERMASTER';
+                else if (guard.key === 'SHIELD') key = 'WARDEN';
+                else if (guard.key === 'SPEAR') key = 'VANGUARD';
+                else if (guard.key === 'SCOUT') key = maturity >= 3 ? 'RAIDER' : 'QUARTERMASTER';
+
+                const profile = profileMap[key];
+                return {
+                    ...profile,
+                    key,
+                    focusType,
+                    maturity,
+                    rankLabel,
+                    summary: `${profile.name}${rankLabel}`
+                };
+            },
+
+            getReserveLineageAdvanceText(beforeProfile, afterProfile) {
+                if (!afterProfile) return '';
+                if (!beforeProfile || beforeProfile.key === 'UNTRAINED') return `定型为${afterProfile.summary}`;
+                if (beforeProfile.key !== afterProfile.key) return `转成${afterProfile.summary}`;
+                if (beforeProfile.rankLabel !== afterProfile.rankLabel) return `${afterProfile.name}晋升为${afterProfile.rankLabel}`;
+                return '';
+            },
+
+            getGuardReserveDisplayName(guard) {
+                if (!guard) return '预备守军';
+                const drillText = guard.reserveDrill > 0 ? `/精训${guard.reserveDrill}` : '';
+                const lineage = this.getReserveLineageProfile(guard);
+                const lineageText = lineage.key !== 'UNTRAINED' ? `/${lineage.name}` : '';
+                return `${guard.roleName || guard.name || guard.key}[${this.getGuardVeterancyLabel(guard)}${drillText}${lineageText}]`;
+            },
+
+            getGuardReserveSummaryText(player, joiner = ' / ') {
+                const reserves = player?.guardReserves || [];
+                if (reserves.length === 0) return '暂无预备守军';
+
+                const counts = reserves.reduce((result, guard) => {
+                    const lineage = this.getReserveLineageProfile(guard);
+                    const key = `${guard.key || 'UNKNOWN'}:${lineage.key}`;
+                    if (!result[key]) {
+                        result[key] = {
+                            name: guard.roleName || guard.name || guard.key,
+                            lineageName: lineage.name,
+                            count: 0,
+                            veteran: 0,
+                            maturity: 0
+                        };
+                    }
+                    result[key].count += 1;
+                    result[key].veteran = Math.max(result[key].veteran, guard.veterancy || 0);
+                    result[key].maturity = Math.max(result[key].maturity, lineage.maturity || 0);
+                    return result;
+                }, {});
+
+                const getRankLabel = (maturity = 0) => maturity >= 5 ? '王牌' : (maturity >= 3 ? '熟练' : '新编');
+                return Object.values(counts)
+                    .map(entry => `${entry.name}x${entry.count}(${this.getGuardVeterancyLabel(entry.veteran)}/${entry.lineageName}${getRankLabel(entry.maturity)})`)
+                    .join(joiner);
+            },
+
+            getGuardReserveLineageSummaryText(player, joiner = ' / ') {
+                const reserves = player?.guardReserves || [];
+                if (reserves.length === 0) return '暂无预备专精';
+
+                const counts = reserves.reduce((result, guard) => {
+                    const lineage = this.getReserveLineageProfile(guard);
+                    if (!result[lineage.key]) {
+                        result[lineage.key] = {
+                            name: lineage.name,
+                            count: 0,
+                            maturity: 0
+                        };
+                    }
+                    result[lineage.key].count += 1;
+                    result[lineage.key].maturity = Math.max(result[lineage.key].maturity, lineage.maturity || 0);
+                    return result;
+                }, {});
+
+                const getRankLabel = (maturity = 0) => maturity >= 5 ? '王牌' : (maturity >= 3 ? '熟练' : '新编');
+                return Object.values(counts)
+                    .map(entry => `${entry.name}x${entry.count}(${getRankLabel(entry.maturity)})`)
+                    .join(joiner);
+            },
+
+            drillReserveGuard(player, slot, {
+                retuneType = null,
+                expGain = 0,
+                hpGain = 0,
+                atkGain = 0,
+                preferredRole = null,
+                sourceLabel = '预备整训'
+            } = {}) {
+                const guard = this.pickReserveGuardForFacility(player, slot, preferredRole);
+                if (!guard) return null;
+
+                const beforeLineage = this.getReserveLineageProfile(guard);
+                const summary = [];
+                if (retuneType) {
+                    summary.push(...this.retuneReserveGuard(guard, retuneType));
+                }
+                if (hpGain > 0) {
+                    guard.maxHp += hpGain;
+                    guard.hp = Math.min(guard.maxHp, guard.hp + hpGain);
+                    summary.push(`预备上限 +${hpGain}HP`);
+                }
+                if (atkGain > 0) {
+                    guard.atk += atkGain;
+                    summary.push(`预备 ATK +${atkGain}`);
+                }
+                if (expGain > 0) {
+                    this.grantGuardExp(guard, expGain);
+                    summary.push(`历练 +${expGain}`);
+                }
+                guard.reserveDrill = Math.min(4, (guard.reserveDrill || 0) + 1);
+                summary.push(`精训 ${guard.reserveDrill}`);
+                const afterLineage = this.getReserveLineageProfile(guard);
+                const lineageAdvanceText = this.getReserveLineageAdvanceText(beforeLineage, afterLineage);
+                if (lineageAdvanceText) summary.push(lineageAdvanceText);
+
+                if (summary.length > 0) {
+                    this.log(`${sourceLabel}：${this.getGuardReserveDisplayName(guard)} 获得 ${summary.join('，')}。`);
+                    this.createFloatingText(`整训 ${guard.roleName}`, slot.mesh.position, "#70a1ff");
+                }
+
+                return { guard, summary };
+            },
+
+            getReserveDeploymentPayload(slot, guard) {
+                const payload = {
+                    defenseGain: 0,
+                    playerHeal: 0,
+                    goldRefund: 0,
+                    guardMaxHpGain: 0,
+                    guardHpGain: 0,
+                    guardAtkGain: 0,
+                    grantExp: 0,
+                    supportCardIds: [],
+                    summary: []
+                };
+                if (!slot || !guard) return payload;
+
+                const addSupportCard = (cardId) => {
+                    if (!cardId || !this.cardLibrary[cardId] || payload.supportCardIds.includes(cardId)) return;
+                    payload.supportCardIds.push(cardId);
+                };
+                const sourceMatch = guard.capturedFrom && guard.capturedFrom === slot.type;
+                const focusMatch = guard.reserveFocus && guard.reserveFocus === slot.type;
+                const level = slot.level || 1;
+                const reserveDrill = guard.reserveDrill || 0;
+                const lineage = this.getReserveLineageProfile(guard);
+                const lineageAligned = lineage.preferredSlots.includes(slot.type);
+                const lineageMature = lineage.maturity >= 3;
+
+                if (slot.type === 'TRAP') {
+                    payload.defenseGain += 2 + level;
+                    if (guard.key === 'SCOUT') {
+                        payload.guardAtkGain += 1;
+                        addSupportCard('AMBUSH');
+                    }
+                } else if (slot.type === 'GUARD') {
+                    payload.defenseGain += 3 + level * 2 + (guard.key === 'SHIELD' ? 3 : 0);
+                    payload.guardMaxHpGain += guard.key === 'SHIELD' ? 2 + level : 1;
+                    if (guard.key === 'SHIELD') addSupportCard('TOWER_GUARD');
+                } else if (slot.type === 'INCOME') {
+                    payload.goldRefund += 10 + level * 4 + (guard.key === 'SCOUT' ? 6 : 0);
+                    if (guard.key === 'SCOUT' || sourceMatch) addSupportCard('SUPPLY_LINE');
+                } else if (slot.type === 'HEAL') {
+                    payload.playerHeal += 6 + level * 2;
+                    payload.guardHpGain += 8 + level * 2;
+                    if (sourceMatch) addSupportCard('FIELD_DRESS');
+                } else if (slot.type === 'TRAINING') {
+                    payload.guardAtkGain += 1 + Math.floor(level / 2);
+                    payload.grantExp += 1;
+                    if (guard.key !== 'SHIELD') addSupportCard('PIKE_CHARGE');
+                } else if (slot.type === 'BARRACKS') {
+                    payload.guardMaxHpGain += 3 + level;
+                    payload.guardHpGain += 4 + level;
+                    payload.grantExp += 1;
+                    if (guard.key === 'SPEAR') {
+                        payload.guardAtkGain += 1;
+                        addSupportCard('PIKE_CHARGE');
+                    }
+                } else if (slot.type === 'COMMAND') {
+                    payload.playerHeal += 4 + level;
+                    payload.guardAtkGain += 1;
+                    if ((guard.veterancy || 0) >= 1 || sourceMatch) addSupportCard('WAR_BANNER');
+                } else if (slot.type === 'FORTRESS') {
+                    payload.defenseGain += 5 + level * 2 + (guard.key === 'SHIELD' ? 4 : 0);
+                    payload.guardMaxHpGain += 2 + level;
+                    payload.guardHpGain += 4 + level;
+                    addSupportCard('TOWER_GUARD');
+                } else if (slot.type === 'WORKSHOP') {
+                    payload.defenseGain += 4 + level * 2;
+                    payload.guardHpGain += 3 + level;
+                    if (guard.key === 'SHIELD') {
+                        payload.guardMaxHpGain += 2;
+                        addSupportCard('TOWER_GUARD');
+                    } else if (sourceMatch) {
+                        addSupportCard('SIEGE_KIT');
+                    }
+                }
+
+                if (sourceMatch) {
+                    payload.guardHpGain += 2;
+                    payload.guardAtkGain += 1;
+                }
+
+                if (focusMatch) {
+                    payload.guardHpGain += 1 + reserveDrill;
+                    if (guard.key === 'SHIELD') payload.defenseGain += 1 + reserveDrill;
+                    if (guard.key === 'SPEAR') payload.guardAtkGain += 1 + Math.floor(reserveDrill / 2);
+                    if (guard.key === 'SCOUT') payload.goldRefund += reserveDrill * 2;
+                }
+
+                if (reserveDrill > 0) {
+                    payload.grantExp += Math.floor((reserveDrill + 1) / 2);
+                }
+
+                if ((guard.veterancy || 0) >= 2) {
+                    payload.defenseGain += 1;
+                }
+
+                if (lineage.key === 'VANGUARD') {
+                    payload.guardAtkGain += 1;
+                    if (lineageAligned) {
+                        payload.grantExp += 1;
+                        if (slot.type === 'COMMAND') payload.playerHeal += 2;
+                        addSupportCard(lineageMature ? lineage.eliteSupportCardId : lineage.supportCardId);
+                    }
+                } else if (lineage.key === 'WARDEN') {
+                    payload.defenseGain += 1;
+                    payload.guardMaxHpGain += 1;
+                    if (lineageAligned) {
+                        payload.defenseGain += 1;
+                        payload.guardHpGain += 2;
+                        addSupportCard(lineageMature ? lineage.eliteSupportCardId : lineage.supportCardId);
+                    }
+                } else if (lineage.key === 'QUARTERMASTER') {
+                    payload.playerHeal += 2;
+                    payload.goldRefund += 4;
+                    if (lineageAligned) {
+                        payload.playerHeal += 2;
+                        payload.goldRefund += 4;
+                        if (slot.type === 'HEAL') {
+                            addSupportCard(lineageMature ? lineage.eliteSupportCardId : 'FIELD_DRESS');
+                        } else {
+                            addSupportCard(lineageMature ? lineage.eliteSupportCardId : lineage.supportCardId);
+                        }
+                    }
+                } else if (lineage.key === 'SAPPER') {
+                    payload.defenseGain += 1;
+                    if (lineageAligned) {
+                        payload.defenseGain += 2;
+                        payload.guardAtkGain += 1;
+                        addSupportCard(lineage.supportCardId);
+                        if (lineageMature && slot.type === 'FORTRESS') addSupportCard(lineage.eliteSupportCardId);
+                    }
+                } else if (lineage.key === 'RAIDER') {
+                    payload.goldRefund += 2;
+                    if (lineageAligned) {
+                        payload.guardAtkGain += 1;
+                        payload.goldRefund += 4;
+                        addSupportCard(lineageMature ? lineage.eliteSupportCardId : lineage.supportCardId);
+                    }
+                }
+
+                if (payload.defenseGain > 0) payload.summary.push(`城防 +${payload.defenseGain}`);
+                if (payload.playerHeal > 0) payload.summary.push(`整补 ${payload.playerHeal}HP`);
+                if (payload.goldRefund > 0) payload.summary.push(`回补 ${payload.goldRefund}G`);
+                if (payload.guardMaxHpGain > 0) payload.summary.push(`守军上限 +${payload.guardMaxHpGain}HP`);
+                if (payload.guardHpGain > 0) payload.summary.push(`入驻恢复 ${payload.guardHpGain}HP`);
+                if (payload.guardAtkGain > 0) payload.summary.push(`守军 ATK +${payload.guardAtkGain}`);
+                if (payload.grantExp > 0) payload.summary.push(`历练 +${payload.grantExp}`);
+                if (payload.supportCardIds.length > 0) payload.summary.push(`筹备:${payload.supportCardIds.map(cardId => this.getCardDisplayName(cardId)).join('/')}`);
+                if (lineage.key !== 'UNTRAINED') payload.summary.push(`谱系:${lineage.summary}`);
+                if (sourceMatch) payload.summary.push('原编制回岗');
+                if (focusMatch) payload.summary.push(`熟练回岗:${guard.reserveFocus}`);
+                return payload;
+            },
+
+            getReserveDeploymentPreviewText(slot, guard) {
+                const payload = this.getReserveDeploymentPayload(slot, guard);
+                return payload.summary.length > 0
+                    ? payload.summary.join(' / ')
+                    : '仅按原训练入驻';
+            },
+
+            applyReserveDeploymentPayload(player, slot, guard) {
+                const payload = this.getReserveDeploymentPayload(slot, guard);
+                if (!player || !slot || !guard) return payload;
+
+                if (payload.defenseGain > 0) {
+                    slot.defense += payload.defenseGain;
+                    this.updateFacilityVisual(slot);
+                    this.createFloatingText(`城防 +${payload.defenseGain}`, slot.mesh.position, "#70a1ff");
+                }
+                if (payload.guardMaxHpGain > 0) {
+                    guard.maxHp += payload.guardMaxHpGain;
+                }
+                if (payload.guardHpGain > 0 || payload.guardMaxHpGain > 0) {
+                    guard.hp = Math.min(guard.maxHp, guard.hp + payload.guardHpGain + payload.guardMaxHpGain);
+                }
+                if (payload.guardAtkGain > 0) {
+                    guard.atk += payload.guardAtkGain;
+                }
+                if (payload.grantExp > 0) {
+                    this.grantGuardExp(guard, payload.grantExp);
+                }
+                if (payload.playerHeal > 0) {
+                    const before = player.hp;
+                    player.hp = Math.min(player.maxHp, player.hp + payload.playerHeal);
+                    const healed = player.hp - before;
+                    if (healed > 0) {
+                        this.createFloatingText(`+${healed}HP`, player.meshGroup.position, "#2ed573");
+                    }
+                }
+                if (payload.goldRefund > 0) {
+                    player.gold += payload.goldRefund;
+                    this.createFloatingText(`+${payload.goldRefund}G`, slot.mesh.position, "#eccc68");
+                }
+                const queuedCards = [];
+                payload.supportCardIds.forEach(cardId => {
+                    if (this.queuePreparedBattleCard(player, cardId, `预备部署:${this.getFacilityName(slot)}`)) {
+                        queuedCards.push(this.getCardDisplayName(cardId));
+                    }
+                });
+                if (queuedCards.length > 0) {
+                    this.createFloatingText(`+${queuedCards.join('/')}`, slot.mesh.position, "#a55eea");
+                }
+                if (payload.summary.length > 0) {
+                    this.log(`${guard.name} 入驻 ${this.getFacilityName(slot)} 后触发整编：${payload.summary.join('，')}。`);
+                }
+                return payload;
+            },
+
             grantGuardExp(guard, amount = 1) {
                 if (!guard || amount <= 0) {
                     return { leveledUp: false, beforeRank: guard?.veterancy || 0, afterRank: guard?.veterancy || 0 };
@@ -4357,6 +4754,23 @@
                     ${this.infoRow('筹备', `${player.preparedBattleCards?.length || 0} 张`)}
                     ${this.infoRow('预备', `${player.guardReserves?.length || 0} 名`)}
                     ${this.infoRow('预备编成', this.getGuardReserveSummaryText(player, ' | '))}
+                `;
+            },
+
+            buildPlayerInfo(player) {
+                const tag = player.isPlayer ? '我方角色' : '敌方角色';
+                return `
+                    <div class="info-title" style="color:#${player.color.toString(16).padStart(6, '0')}">${this.escapeHtml(player.name)}</div>
+                    <div class="info-tag">${tag}</div>
+                    ${this.infoRow('等级', `Lv.${player.level}`)}
+                    ${this.infoRow('HP', `${player.hp}/${player.maxHp}`)}
+                    ${this.infoRow('ATK', player.atk)}
+                    ${this.infoRow('金币', `${player.gold}G`)}
+                    ${this.infoRow('牌库', `${player.deck.length} 张`)}
+                    ${this.infoRow('筹备', `${player.preparedBattleCards?.length || 0} 张`)}
+                    ${this.infoRow('预备', `${player.guardReserves?.length || 0} 名`)}
+                    ${this.infoRow('预备编成', this.getGuardReserveSummaryText(player, ' | '))}
+                    ${this.infoRow('预备专精', this.getGuardReserveLineageSummaryText(player, ' | '))}
                 `;
             },
 
@@ -7667,6 +8081,39 @@
                 this.log(reserve
                     ? `花费 ${cost}G 将预备队里的 ${guard.name} 安插到 ${this.getFacilityName(slot)}，保留了${guard.training?.label || '原有操练'}。`
                     : `花费 ${cost}G 为 ${this.getFacilityName(slot)} 招募了 ${guard.name}，继承了${guard.training?.label || '通用操练'}。`);
+                return true;
+            },
+
+            performRecruitGuard(player, slot, roleKey = null) {
+                const reserve = this.getReserveGuardForRole(player, roleKey);
+                const cost = reserve
+                    ? this.getGuardReserveDeployCost(slot, reserve)
+                    : this.getGuardRecruitCost(slot);
+                if (player.gold < cost) {
+                    this.log(`金币不足，当前补入${this.guardArchetypes.find(archetype => archetype.key === roleKey)?.name || '守军'}需要 ${cost}G。`);
+                    return false;
+                }
+                player.gold -= cost;
+                const guard = reserve
+                    ? this.consumeGuardReserve(player, roleKey)
+                    : this.createGuard(slot, roleKey);
+                if (!guard) return false;
+
+                guard.hp = guard.maxHp;
+                slot.guards.push(guard);
+                slot.defense += (reserve ? 4 : 6) + slot.level * 2;
+                if (reserve) {
+                    this.applyReserveDeploymentPayload(player, slot, guard);
+                }
+
+                this.updateGuardMarkers(slot);
+                this.createFloatingText("+守军", slot.mesh.position, "#1e90ff");
+                if (reserve) {
+                    const lineage = this.getReserveLineageProfile(guard);
+                    this.log(`花费 ${cost}G 将预备队里的 ${guard.name} 安插到 ${this.getFacilityName(slot)}，保留了${guard.training?.label || '原有操练'}，并以${lineage.summary}的谱系落位。`);
+                } else {
+                    this.log(`花费 ${cost}G 为 ${this.getFacilityName(slot)} 招募了 ${guard.name}，继承了${guard.training?.label || '通用操练'}。`);
+                }
                 return true;
             },
 
