@@ -2483,6 +2483,100 @@
                 return added;
             },
 
+            createFacilityReserveGuard(slot, preferredKey = null) {
+                const guard = this.createGuard(slot, preferredKey);
+                guard.name = `预备${guard.roleName}${((slot?.owner?.guardReserves?.length || 0) % 9) + 1}`;
+                guard.maxHp = Math.max(16, guard.maxHp - 4 + Math.floor((slot?.level || 1) / 2));
+                guard.hp = guard.maxHp;
+                guard.atk = Math.max(guard.atk - 1, 4);
+                guard.capturedFrom = slot?.type || 'EMPTY';
+                return guard;
+            },
+
+            addGuardReserve(player, guard, sourceLabel = '预备队', anchorPos = null) {
+                if (!player || !guard) return null;
+                if (!player.guardReserves) player.guardReserves = [];
+                if (player.guardReserves.length >= 6) {
+                    const dropped = player.guardReserves.shift();
+                    if (dropped) {
+                        this.log(`预备队已满，原先的 ${this.getGuardReserveDisplayName(dropped)} 离队。`);
+                    }
+                }
+
+                player.guardReserves.push(guard);
+                this.log(`${sourceLabel} 增补了 ${this.getGuardReserveDisplayName(guard)}。`);
+                if (anchorPos) {
+                    this.createFloatingText(`+${guard.roleName}`, anchorPos, "#1e90ff");
+                }
+                return guard;
+            },
+
+            pickReserveGuardForFacility(player, slot, preferredRole = null) {
+                if (!player?.guardReserves?.length) return null;
+                const targetRole = preferredRole
+                    || this.getNodePreferredGuardRole(slot, this.getNodeOwnedFacilities(player));
+                return this.getReserveGuardForRole(player, targetRole) || player.guardReserves[0] || null;
+            },
+
+            retuneReserveGuard(guard, facilityType = 'EMPTY') {
+                if (!guard) return [];
+                const previous = guard.training || this.getGuardTrainingProfile(guard.capturedFrom || 'EMPTY', guard.key);
+                const next = this.getGuardTrainingProfile(facilityType, guard.key);
+                const summary = [];
+                const hpDelta = (next.hpBonus || 0) - (previous.hpBonus || 0);
+                const atkDelta = (next.atkBonus || 0) - (previous.atkBonus || 0);
+
+                if (hpDelta > 0) {
+                    guard.maxHp = Math.max(12, guard.maxHp + hpDelta);
+                    guard.hp = Math.min(guard.maxHp, guard.hp + hpDelta);
+                    summary.push(`训练体质 +${hpDelta}`);
+                }
+                if (atkDelta > 0) {
+                    guard.atk = Math.max(3, guard.atk + atkDelta);
+                    summary.push(`训练攻击 +${atkDelta}`);
+                }
+
+                guard.training = next;
+                return summary;
+            },
+
+            drillReserveGuard(player, slot, {
+                retuneType = null,
+                expGain = 0,
+                hpGain = 0,
+                atkGain = 0,
+                preferredRole = null,
+                sourceLabel = '预备整训'
+            } = {}) {
+                const guard = this.pickReserveGuardForFacility(player, slot, preferredRole);
+                if (!guard) return null;
+
+                const summary = [];
+                if (retuneType) {
+                    summary.push(...this.retuneReserveGuard(guard, retuneType));
+                }
+                if (hpGain > 0) {
+                    guard.maxHp += hpGain;
+                    guard.hp = Math.min(guard.maxHp, guard.hp + hpGain);
+                    summary.push(`预备上限 +${hpGain}HP`);
+                }
+                if (atkGain > 0) {
+                    guard.atk += atkGain;
+                    summary.push(`预备 ATK +${atkGain}`);
+                }
+                if (expGain > 0) {
+                    this.grantGuardExp(guard, expGain);
+                    summary.push(`历练 +${expGain}`);
+                }
+
+                if (summary.length > 0) {
+                    this.log(`${sourceLabel}：${this.getGuardReserveDisplayName(guard)} 获得 ${summary.join('，')}。`);
+                    this.createFloatingText(`整训 ${guard.roleName}`, slot.mesh.position, "#70a1ff");
+                }
+
+                return { guard, summary };
+            },
+
             getReserveDeploymentPayload(slot, guard) {
                 const payload = {
                     defenseGain: 0,
@@ -4752,6 +4846,13 @@
                         this.log(`指挥所吹响集结号，让同路块守军完成整队：${guards.length} 名守军恢复 ${guardHeal} HP 并获得 +1 ATK，你也获得了 +1 ATK。`);
                         this.createFloatingText(`集结号 x${guards.length}`, slot.mesh.position, "#4b7bec");
                     }
+                    this.drillReserveGuard(player, slot, {
+                        retuneType: 'COMMAND',
+                        expGain: 1,
+                        atkGain: 1,
+                        preferredRole: 'SPEAR',
+                        sourceLabel: '指挥所整编预备队'
+                    });
                     owned.forEach(other => this.grantSlotGuardExp(other, 1, '整队'));
                 } else if (slot.type === 'FORTRESS') {
                     const fortify = 6 + slot.level * 4;
@@ -4820,6 +4921,13 @@
                     }
                     this.log(`治疗营地恢复 ${actual} HP。`);
                     this.createFloatingText(`+${actual}HP`, player.meshGroup.position, "#2ed573");
+                    this.drillReserveGuard(player, slot, {
+                        retuneType: 'HEAL',
+                        expGain: 1,
+                        hpGain: 2 + slot.level,
+                        preferredRole: 'SHIELD',
+                        sourceLabel: '治疗营地稳定预备队'
+                    });
                     this.grantSlotGuardExp(slot, 1, '战地疗养');
                 } else if (slot.type === 'TRAINING') {
                     const atkGain = 1 + Math.floor(slot.level / 2);
@@ -4835,6 +4943,13 @@
                     }
                     this.log(`训练营鼓舞士气，ATK +${atkGain}。`);
                     this.createFloatingText(`ATK +${atkGain}`, player.meshGroup.position, "#ffb142");
+                    this.drillReserveGuard(player, slot, {
+                        retuneType: 'TRAINING',
+                        expGain: 2,
+                        atkGain: 1,
+                        preferredRole: 'SPEAR',
+                        sourceLabel: '训练营整训预备队'
+                    });
                     this.grantSlotGuardExp(slot, 2, '训练营操练');
                 } else if (slot.type === 'BARRACKS') {
                     const guardHeal = 7 + slot.level * 3;
@@ -4868,6 +4983,16 @@
                     }
                     if (slot.level >= slot.maxLevel && trained > 0) {
                         this.refineDeckCard(player, 'GUARD_UP', 'TOWER_GUARD', '兵营');
+                    }
+                    if (slot.level >= 2) {
+                        const reserveGuard = this.createFacilityReserveGuard(
+                            slot,
+                            this.getNodePreferredGuardRole(slot, this.getNodeOwnedFacilities(player))
+                        );
+                        if (slot.level >= slot.maxLevel) {
+                            this.grantGuardExp(reserveGuard, 1);
+                        }
+                        this.addGuardReserve(player, reserveGuard, '兵营预备队', slot.mesh.position);
                     }
                     if (trained > 0) {
                         this.grantSlotGuardExp(slot, 2, '兵营整训');
