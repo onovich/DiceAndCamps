@@ -4975,6 +4975,95 @@
                 document.querySelector('#build-menu .build-options').style.display = 'flex';
             },
 
+            getFacilityGuardEmergencePayload(context) {
+                const facilityType = context?.facilityType || context?.type || '';
+                const level = context?.facilityLevel || context?.level || 1;
+                const roleCounts = context?.roleCounts || { SHIELD: 0, SPEAR: 0, SCOUT: 0, total: 0 };
+                const veterancy = context?.veterancy || { totalVeterancy: 0, highestVeterancy: 0, byRole: { SHIELD: 0, SPEAR: 0, SCOUT: 0 } };
+
+                if (facilityType === 'BARRACKS') {
+                    const heal = 6 + level * 3 + roleCounts.total * 2;
+                    const armorGain = roleCounts.SHIELD > 0 ? 1 + Math.floor(level / 2) : 0;
+                    return {
+                        heal,
+                        armorGain,
+                        color: "#ff7f50",
+                        floatText: "兵营反扑",
+                        logLine: `兵营守军从后排补位，破墙后立刻整补 ${heal} HP${armorGain > 0 ? `，并让护甲 +${armorGain}` : ''}。`,
+                        previewText: `破墙后守军整补 ${heal} HP${armorGain > 0 ? ` / 护甲 +${armorGain}` : ''}`
+                    };
+                }
+
+                if (facilityType === 'COMMAND') {
+                    const atkGain = 2 + Math.floor(level / 2) + Math.min(2, roleCounts.total);
+                    return {
+                        atkGain,
+                        color: "#4b7bec",
+                        floatText: "集结反扑",
+                        logLine: `指挥所的号令在破墙后才真正压上来，守军攻势 +${atkGain}。`,
+                        previewText: `破墙后守军整队反扑，ATK +${atkGain}`
+                    };
+                }
+
+                if (facilityType === 'TRAINING') {
+                    const atkGain = 2 + Math.floor(level / 2) + Math.min(2, roleCounts.SPEAR);
+                    const armorGain = roleCounts.SHIELD >= 2 ? 1 : 0;
+                    return {
+                        atkGain,
+                        armorGain,
+                        color: "#ffb142",
+                        floatText: "训练反扑",
+                        logLine: `训练营守军把演练过的动作整套压出来，ATK +${atkGain}${armorGain > 0 ? `，护甲 +${armorGain}` : ''}。`,
+                        previewText: `破墙后守军ATK +${atkGain}${armorGain > 0 ? ` / 护甲 +${armorGain}` : ''}`
+                    };
+                }
+
+                if (facilityType === 'HEAL') {
+                    const heal = 8 + level * 4 + Math.min(6, veterancy.totalVeterancy || 0);
+                    const dodgeBonus = roleCounts.SCOUT > 0 ? 0.04 : 0;
+                    return {
+                        heal,
+                        dodgeBonus,
+                        color: "#2ed573",
+                        floatText: "战地整补",
+                        logLine: `治疗营地的后勤把守军重新顶了上来，破墙后恢复 ${heal} HP${dodgeBonus > 0 ? `，并让闪避 +${Math.round(dodgeBonus * 100)}%` : ''}。`,
+                        previewText: `破墙后守军恢复 ${heal} HP${dodgeBonus > 0 ? ` / 闪避 +${Math.round(dodgeBonus * 100)}%` : ''}`
+                    };
+                }
+
+                if (facilityType === 'WORKSHOP') {
+                    const armorGain = 2 + level + Math.min(2, roleCounts.SHIELD);
+                    const heal = 4 + level;
+                    return {
+                        heal,
+                        armorGain,
+                        color: "#747d8c",
+                        floatText: "工事接战",
+                        logLine: `城防工坊在破墙后把工事直接接到守军脚下，恢复 ${heal} HP，护甲 +${armorGain}。`,
+                        previewText: `破墙后守军恢复 ${heal} HP / 护甲 +${armorGain}`
+                    };
+                }
+
+                if (facilityType === 'GUARD') {
+                    const armorGain = 1 + level;
+                    const atkGain = 1 + Math.floor(level / 2);
+                    return {
+                        atkGain,
+                        armorGain,
+                        color: "#70a1ff",
+                        floatText: "哨站顶防",
+                        logLine: `守卫哨站的近身守军直接顶到缺口上，ATK +${atkGain}，护甲 +${armorGain}。`,
+                        previewText: `破墙后守军ATK +${atkGain} / 护甲 +${armorGain}`
+                    };
+                }
+
+                return null;
+            },
+
+            getFacilityGuardEmergencePreview(context) {
+                return this.getFacilityGuardEmergencePayload(context)?.previewText || '';
+            },
+
             getBuildingBattlePreview(slot) {
                 const hasGuard = slot.guards.length > 0;
                 const roleCounts = this.getGuardRoleCounts(slot);
@@ -5002,10 +5091,22 @@
                 const atk = hasGuard ? wallAtk : guardPhaseAtk;
                 const hp = fortifiedWallHp + guardHp;
                 const battlePlanDetails = this.getFacilityBattlePlan(slot, hasGuard);
+                const emergencePreview = hasGuard
+                    ? this.getFacilityGuardEmergencePreview({
+                        facilityType: slot.type,
+                        facilityLevel: slot.level,
+                        roleCounts,
+                        veterancy
+                    })
+                    : '';
                 const preparedSupport = this.getPreparedBattleSupportPreviewText(slot.owner);
-                const battlePlan = preparedSupport === '暂无战前筹备'
-                    ? battlePlanDetails
-                    : `${battlePlanDetails}；敌方战前筹备：${preparedSupport}`;
+                let battlePlan = battlePlanDetails;
+                if (emergencePreview) {
+                    battlePlan += `；破墙后：${emergencePreview}`;
+                }
+                if (preparedSupport !== '暂无战前筹备') {
+                    battlePlan += `；敌方战前筹备：${preparedSupport}`;
+                }
                 return {
                     hasGuard,
                     wallHp: fortifiedWallHp,
@@ -7185,6 +7286,7 @@
                         trainingCombo: enemy.trainingCombo || this.getGuardTrainingComboPayload(enemy.slot || []),
                         roleCounts: enemy.roleCounts || { SHIELD: 0, SPEAR: 0, SCOUT: 0, total: 0 },
                         hasGuard: !!enemy.hasGuard,
+                        emergenceApplied: false,
                         slot: enemy.slot || null,
                         meshGroup: enemy.meshGroup || enemy.slot?.facilityMesh || enemy.slot?.mesh || null
                     };
@@ -7283,18 +7385,48 @@
                 };
             },
 
+            applyFacilityGuardEmergence(enemyState) {
+                if (!enemyState || enemyState.phase !== 'guard' || enemyState.emergenceApplied) return null;
+                const payload = this.getFacilityGuardEmergencePayload(enemyState);
+                enemyState.emergenceApplied = true;
+                if (!payload) return null;
+
+                if ((payload.heal || 0) > 0) {
+                    enemyState.hp = Math.min(enemyState.maxHp, enemyState.hp + payload.heal);
+                    enemyState.guardHp = enemyState.hp;
+                }
+                if ((payload.atkGain || 0) > 0) {
+                    enemyState.atk += payload.atkGain;
+                    enemyState.guardAtk += payload.atkGain;
+                }
+                if ((payload.armorGain || 0) > 0) {
+                    enemyState.guardArmor = (enemyState.guardArmor || 0) + payload.armorGain;
+                }
+                if ((payload.dodgeBonus || 0) > 0) {
+                    enemyState.dodgeChance = Math.min(0.65, (enemyState.dodgeChance || 0) + payload.dodgeBonus);
+                }
+
+                enemyState.phaseLabel = payload.previewText || enemyState.phaseLabel;
+                return payload;
+            },
+
             async handleFacilityBattleStageShift(enemyState, enemyTarget) {
                 if (enemyState.phase !== 'guard') return;
+                const emergence = this.applyFacilityGuardEmergence(enemyState);
                 this.log(`${enemyState.facilityName} 的城墙被攻破，守军被迫出阵！`);
                 this.createFloatingText('城墙破碎!', enemyTarget.position || enemyTarget, '#ff9f43');
                 this.showHitEffect(enemyTarget, 0xff9f43);
                 await this.focusBattleCamera(enemyTarget, 1.84, 240);
                 await this.wait(220);
                 this.createFloatingText('守军出阵!', enemyTarget.position || enemyTarget, '#1e90ff');
+                if (emergence) {
+                    this.log(emergence.logLine);
+                    this.createFloatingText(emergence.floatText, enemyTarget.position || enemyTarget, emergence.color || '#1e90ff');
+                    await this.wait(160);
+                }
                 await this.focusBattleCamera(enemyTarget, 1.7, 220);
                 await this.wait(180);
             },
-
             captureBattleSnapshot(attacker, enemyMesh) {
                 const mapObjects = [
                     ...this.roadSegments,
@@ -8537,8 +8669,8 @@
                         await this.focusBattleCamera(enemyMesh || enemyPos, 1.72, 220);
                         await this.wait(300);
                         if (strikeOutcome.stageShifted) {
-                            this.updateBattleStatus(attacker, enemyState, round);
                             await this.handleFacilityBattleStageShift(enemyState, enemyMesh || enemyPos);
+                            this.updateBattleStatus(attacker, enemyState, round);
                         }
                     }
 
