@@ -2348,7 +2348,8 @@
 
             getGuardReserveDisplayName(guard) {
                 if (!guard) return '预备守军';
-                return `${guard.roleName || guard.name || guard.key}[${this.getGuardVeterancyLabel(guard)}]`;
+                const drillText = guard.reserveDrill > 0 ? `/精训${guard.reserveDrill}` : '';
+                return `${guard.roleName || guard.name || guard.key}[${this.getGuardVeterancyLabel(guard)}${drillText}]`;
             },
 
             getGuardReserveSummaryText(player, joiner = ' / ') {
@@ -2425,7 +2426,9 @@
                     training,
                     veterancy,
                     exp: 0,
-                    capturedFrom: slot?.type || 'EMPTY'
+                    capturedFrom: slot?.type || 'EMPTY',
+                    reserveFocus: slot?.type || 'EMPTY',
+                    reserveDrill: 0
                 };
             },
 
@@ -2490,6 +2493,8 @@
                 guard.hp = guard.maxHp;
                 guard.atk = Math.max(guard.atk - 1, 4);
                 guard.capturedFrom = slot?.type || 'EMPTY';
+                guard.reserveFocus = slot?.type || 'EMPTY';
+                guard.reserveDrill = 1;
                 return guard;
             },
 
@@ -2537,6 +2542,7 @@
                 }
 
                 guard.training = next;
+                guard.reserveFocus = facilityType;
                 return summary;
             },
 
@@ -2568,6 +2574,8 @@
                     this.grantGuardExp(guard, expGain);
                     summary.push(`历练 +${expGain}`);
                 }
+                guard.reserveDrill = Math.min(4, (guard.reserveDrill || 0) + 1);
+                summary.push(`精训 ${guard.reserveDrill}`);
 
                 if (summary.length > 0) {
                     this.log(`${sourceLabel}：${this.getGuardReserveDisplayName(guard)} 获得 ${summary.join('，')}。`);
@@ -2592,7 +2600,9 @@
                 if (!slot || !guard) return payload;
 
                 const sourceMatch = guard.capturedFrom && guard.capturedFrom === slot.type;
+                const focusMatch = guard.reserveFocus && guard.reserveFocus === slot.type;
                 const level = slot.level || 1;
+                const reserveDrill = guard.reserveDrill || 0;
 
                 if (slot.type === 'TRAP') {
                     payload.defenseGain += 2 + level;
@@ -2648,6 +2658,17 @@
                     payload.guardAtkGain += 1;
                 }
 
+                if (focusMatch) {
+                    payload.guardHpGain += 1 + reserveDrill;
+                    if (guard.key === 'SHIELD') payload.defenseGain += 1 + reserveDrill;
+                    if (guard.key === 'SPEAR') payload.guardAtkGain += 1 + Math.floor(reserveDrill / 2);
+                    if (guard.key === 'SCOUT') payload.goldRefund += reserveDrill * 2;
+                }
+
+                if (reserveDrill > 0) {
+                    payload.grantExp += Math.floor((reserveDrill + 1) / 2);
+                }
+
                 if ((guard.veterancy || 0) >= 2) {
                     payload.defenseGain += 1;
                 }
@@ -2661,6 +2682,7 @@
                 if (payload.grantExp > 0) payload.summary.push(`历练 +${payload.grantExp}`);
                 if (payload.supportCardId) payload.summary.push(`筹备:${this.getCardDisplayName(payload.supportCardId)}`);
                 if (sourceMatch) payload.summary.push('原编制回归');
+                if (focusMatch) payload.summary.push(`熟练回岗:${guard.reserveFocus}`);
                 return payload;
             },
 
