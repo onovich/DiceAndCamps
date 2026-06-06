@@ -1772,7 +1772,8 @@
                         drawPile: [],
                         discardPile: [],
                         preparedBattleCards: [],
-                        preparedBattleSummary: []
+                        preparedBattleSummary: [],
+                        guardReserves: []
                     });
                 }
                 this.reflowAllCharacterStances(false);
@@ -2343,6 +2344,143 @@
 
             getGuardNextVeterancyExp(rank = 0) {
                 return [3, 7, 12][rank] ?? null;
+            },
+
+            getGuardReserveDisplayName(guard) {
+                if (!guard) return '预备守军';
+                return `${guard.roleName || guard.name || guard.key}[${this.getGuardVeterancyLabel(guard)}]`;
+            },
+
+            getGuardReserveSummaryText(player, joiner = ' / ') {
+                const reserves = player?.guardReserves || [];
+                if (reserves.length === 0) return '暂无预备守军';
+
+                const counts = reserves.reduce((result, guard) => {
+                    const key = guard.key || 'UNKNOWN';
+                    if (!result[key]) {
+                        result[key] = {
+                            name: guard.roleName || guard.name || key,
+                            count: 0,
+                            veteran: 0
+                        };
+                    }
+                    result[key].count += 1;
+                    result[key].veteran = Math.max(result[key].veteran, guard.veterancy || 0);
+                    return result;
+                }, {});
+
+                return Object.values(counts)
+                    .map(entry => `${entry.name}x${entry.count}${entry.veteran > 0 ? `(${this.getGuardVeterancyLabel(entry.veteran)})` : ''}`)
+                    .join(joiner);
+            },
+
+            getReserveGuardForRole(player, roleKey = null) {
+                const reserves = player?.guardReserves || [];
+                if (!roleKey) return reserves[0] || null;
+                return reserves.find(guard => guard.key === roleKey) || null;
+            },
+
+            getGuardReserveDeployCost(slot, guard = null) {
+                const baseCost = this.getGuardRecruitCost(slot);
+                return Math.max(18, baseCost - 38 - ((guard?.veterancy || 0) * 6));
+            },
+
+            getGuardRecruitOptionCost(player, slot, roleKey) {
+                const reserve = this.getReserveGuardForRole(player, roleKey);
+                return reserve
+                    ? this.getGuardReserveDeployCost(slot, reserve)
+                    : this.getGuardRecruitCost(slot);
+            },
+
+            getMinimumGuardRecruitCost(player, slot) {
+                return this.guardArchetypes.reduce((lowest, archetype) => {
+                    return Math.min(lowest, this.getGuardRecruitOptionCost(player, slot, archetype.key));
+                }, this.getGuardRecruitCost(slot));
+            },
+
+            consumeGuardReserve(player, roleKey = null) {
+                if (!player?.guardReserves?.length) return null;
+                const index = roleKey
+                    ? player.guardReserves.findIndex(guard => guard.key === roleKey)
+                    : 0;
+                if (index < 0) return null;
+                return player.guardReserves.splice(index, 1)[0] || null;
+            },
+
+            createCapturedReserveGuard(slot, guard, reserveIndex = 0) {
+                const archetype = this.guardArchetypes.find(entry => entry.key === guard?.key)
+                    || this.getGuardArchetype(guard?.key, slot);
+                const veterancy = Math.max(0, (guard?.veterancy || 0) - 1);
+                const training = guard?.training || this.getGuardTrainingProfile(slot?.type, archetype.key);
+                const maxHp = Math.max(archetype.maxHp + veterancy * 4, (guard?.maxHp || archetype.maxHp) - 4);
+                const atk = Math.max(archetype.atk + veterancy, (guard?.atk || archetype.atk) - 1);
+                return {
+                    key: archetype.key,
+                    roleName: archetype.name,
+                    name: `归顺${archetype.name}${reserveIndex + 1}`,
+                    maxHp,
+                    hp: maxHp,
+                    atk,
+                    color: archetype.color,
+                    training,
+                    veterancy,
+                    exp: 0,
+                    capturedFrom: slot?.type || 'EMPTY'
+                };
+            },
+
+            getFacilityGuardCapturePayload(slot) {
+                if (!slot?.guards?.length) {
+                    return { guards: [], summary: '无可收编守军' };
+                }
+
+                const sorted = [...slot.guards].sort((a, b) => {
+                    return (b.veterancy || 0) - (a.veterancy || 0)
+                        || b.atk - a.atk
+                        || b.maxHp - a.maxHp;
+                });
+                const baseCount = slot.level >= slot.maxLevel || slot.type === 'BARRACKS' || slot.type === 'COMMAND'
+                    ? 2
+                    : 1;
+                const guards = sorted.slice(0, Math.min(sorted.length, baseCount));
+                return {
+                    guards,
+                    summary: guards.map(guard => this.getGuardReserveDisplayName(guard)).join(' / ')
+                };
+            },
+
+            getFacilityGuardCapturePreviewText(slot) {
+                const payload = this.getFacilityGuardCapturePayload(slot);
+                return payload.guards.length > 0
+                    ? `可收编 ${payload.summary}`
+                    : payload.summary;
+            },
+
+            captureSiegeGuardReserves(player, slot) {
+                if (!player || !slot) return [];
+                if (!player.guardReserves) player.guardReserves = [];
+
+                const payload = this.getFacilityGuardCapturePayload(slot);
+                if (payload.guards.length === 0) return [];
+
+                const added = [];
+                payload.guards.forEach((guard, index) => {
+                    if (player.guardReserves.length >= 6) {
+                        const dropped = player.guardReserves.shift();
+                        if (dropped) {
+                            this.log(`预备队已满，原先的 ${this.getGuardReserveDisplayName(dropped)} 离队。`);
+                        }
+                    }
+                    const reserve = this.createCapturedReserveGuard(slot, guard, added.length);
+                    player.guardReserves.push(reserve);
+                    added.push(reserve);
+                });
+
+                if (added.length > 0) {
+                    this.log(`你从 ${this.getFacilityName(slot)} 收编了 ${added.map(guard => this.getGuardReserveDisplayName(guard)).join(' / ')}，已编入预备队。`);
+                    this.createFloatingText(`+预备 x${added.length}`, slot.mesh.position, "#1e90ff");
+                }
+                return added;
             },
 
             grantGuardExp(guard, amount = 1) {
@@ -3246,11 +3384,15 @@
                 return `${fromText} -> ${this.getCardDisplayName(refine.to)}`;
             },
 
-            getGuardRecruitMenuCopy(archetype, slot) {
+            getGuardRecruitMenuCopy(archetype, slot, player = null) {
                 const levelBoost = slot?.level || 1;
                 const training = this.getGuardTrainingProfile(slot?.type, archetype.key);
                 const baseHp = archetype.maxHp + levelBoost * 5 + training.hpBonus;
                 const baseAtk = archetype.atk + levelBoost * 2 + training.atkBonus;
+                const reserve = this.getReserveGuardForRole(player, archetype.key);
+                const cost = reserve
+                    ? this.getGuardReserveDeployCost(slot, reserve)
+                    : this.getGuardRecruitCost(slot);
                 const traitText = {
                     SHIELD: '顶在最前面，显著提高城墙与守军的减伤。',
                     SPEAR: '反击更狠，容易打出破防式的穿刺压力。',
@@ -3258,7 +3400,9 @@
                 };
                 return {
                     title: `${archetype.name} (${baseHp}HP / ${baseAtk}ATK)`,
-                    text: `${traitText[archetype.key] || '可部署守军。'} ${training.label}：${training.description}`
+                    text: `${traitText[archetype.key] || '可部署守军。'} ${training.label}：${training.description} ${reserve
+                        ? `可直接调用预备队里的 ${this.getGuardReserveDisplayName(reserve)}，当前安插花费 ${cost}G。`
+                        : `直接招募花费 ${cost}G。`}`
                 };
             },
 
@@ -3959,6 +4103,7 @@
                     ${this.infoRow('金币', `${player.gold}G`)}
                     ${this.infoRow('牌库', `${player.deck.length} 张`)}
                     ${this.infoRow('筹备', `${player.preparedBattleCards?.length || 0} 张`)}
+                    ${this.infoRow('预备', `${player.guardReserves?.length || 0} 名`)}
                 `;
             },
 
@@ -4051,6 +4196,7 @@
                     ${this.infoRow('挑战HP', preview.hp)}
                     ${this.infoRow('开场ATK', preview.atk)}
                     ${this.infoRow('攻城战利品', spoilsText)}
+                    ${ownedByPlayer ? '' : this.infoRow('可收编', this.getFacilityGuardCapturePreviewText(slot))}
                 `;
             },
 
@@ -5325,7 +5471,7 @@
                 const recruitable = ownedSlots
                     .filter(slot => this.canFacilityHostGuards(slot)
                         && slot.guards.length < this.getGuardCapacity(slot)
-                        && player.gold >= this.getGuardRecruitCost(slot))
+                        && this.guardArchetypes.some(archetype => player.gold >= this.getGuardRecruitOptionCost(player, slot, archetype.key)))
                     .sort((a, b) => {
                         const aWanted = buildTargets.includes(a.type) ? -1 : 0;
                         const bWanted = buildTargets.includes(b.type) ? -1 : 0;
@@ -5333,10 +5479,16 @@
                     });
                 if (recruitable.length > 0) {
                     const slot = recruitable[0];
-                    const roleKey = this.getNodePreferredGuardRole(slot, ownedSlots);
-                    this.performRecruitGuard(player, slot, roleKey);
-                    this.endTurn();
-                    return;
+                    let roleKey = this.getNodePreferredGuardRole(slot, ownedSlots);
+                    if (player.gold < this.getGuardRecruitOptionCost(player, slot, roleKey)) {
+                        roleKey = this.guardArchetypes.find(archetype =>
+                            player.gold >= this.getGuardRecruitOptionCost(player, slot, archetype.key)
+                        )?.key || roleKey;
+                    }
+                    if (this.performRecruitGuard(player, slot, roleKey)) {
+                        this.endTurn();
+                        return;
+                    }
                 }
 
                 const upgradeable = ownedSlots
@@ -5396,13 +5548,13 @@
                     const demolishBtn = document.getElementById('btn-demolish-facility');
                     const maxed = this.isFacilityMaxLevel(slot);
                     const guardCapacity = this.getGuardCapacity(slot);
-                    const guardCost = this.getGuardRecruitCost(slot);
+                    const guardCost = this.getMinimumGuardRecruitCost(player, slot);
                     const transferTargets = this.getTransferTargets(slot, player);
                     upgradeBtn.disabled = maxed || player.gold < this.getUpgradeCost(slot);
                     upgradeBtn.innerText = maxed ? "已满级" : `升级 (${this.getUpgradeCost(slot)}G)`;
                     recruitBtn.disabled = !this.canFacilityHostGuards(slot) || slot.guards.length >= guardCapacity || player.gold < guardCost;
                     recruitBtn.innerText = this.canFacilityHostGuards(slot)
-                        ? `招募守军 (${guardCost}G)`
+                        ? `补入守军 (${guardCost}G起)`
                         : "不可驻防";
                     transferBtn.disabled = slot.guards.length === 0 || transferTargets.length === 0;
                     transferBtn.innerText = transferTargets.length > 0 ? "调防守军" : "无可调目标";
@@ -5469,12 +5621,12 @@
                     const guardNote = this.canFacilityHostGuards(slot)
                         ? `守军 ${slot.guards.length}/${guardCapacity}`
                         : '不可驻防，但升级会更快提高防御';
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。战术编成：${this.getGuardDoctrineSummaryText(slot, '驻军编成')}。路口计划：${this.getNodeBattlefrontSummaryText(this.getNodeOwnedFacilities(player), '战区计划')}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。本路口支援：${this.getBattleSupportSummaryText(player)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level}/${slot.maxLevel}，防御 ${slot.defense}，${guardNote}。当前驻军：${this.getGuardSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。战术编成：${this.getGuardDoctrineSummaryText(slot, '驻军编成')}。路口计划：${this.getNodeBattlefrontSummaryText(this.getNodeOwnedFacilities(player), '战区计划')}。预备队：${this.getGuardReserveSummaryText(player)}。过路增援：${this.getOwnedVeteranSupportPreviewText(slot)}。本路口支援：${this.getBattleSupportSummaryText(player)}。升级、招募或调防会消耗行动，拆毁不会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 } else {
                     this.setBuildMenuButtons('enemy');
                     const preview = this.getBuildingBattlePreview(slot);
-                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。路口计划：${this.getNodeBattlefrontSummaryText(this.getNodeOwnedFacilities(slot.owner), '敌方战区计划')}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
+                    document.getElementById('build-desc').innerText = `${this.getFacilityName(slot)} Lv.${slot.level} 是敌方设施：${preview.battlePlan || preview.label}。${this.getGuardTraitSummary(slot)}。驻军训练：${this.getGuardTrainingSummary(slot)}。训练联动：${this.getGuardTrainingComboSummary(slot)}。路口计划：${this.getNodeBattlefrontSummaryText(this.getNodeOwnedFacilities(slot.owner), '敌方战区计划')}。守军历练：${this.getGuardVeterancySummary(slot)}。老兵支援：${this.getGuardVeterancySupportText(slot, '老兵支援')}。路口施压：${this.getGuardPressurePreviewText(slot)}。守军战术：${this.getGuardDoctrineSummaryText(slot, '守军编成')}。城墙 HP ${preview.wallHp} / 减伤 ${preview.wallArmor}，守军 HP ${preview.guardHp} / 减伤 ${preview.guardArmor} / 闪避 ${Math.round(preview.dodgeChance * 100)}%。本路块支援：${this.getBattleSupportSummaryText(player)}。战前筹备：${this.getPreparedBattleSummaryText(player)}。攻城战利品预期：${this.getFacilitySpoilsPreviewText(slot)}。可收编：${this.getFacilityGuardCapturePreviewText(slot)}。攻破后可摧毁建筑，胜利不消耗行动，失败会消耗行动。`;
                     document.querySelector('.build-options').style.display = 'flex';
                 }
 
@@ -5608,6 +5760,7 @@
                     this.gainExp(player, rewards.exp);
                     this.grantNodeGuardBattleExp(player, 2, '攻城战');
                     this.applyFacilitySiegeSpoils(player, slot);
+                    this.captureSiegeGuardReserves(player, slot);
                     this.clearFacility(slot);
                     this.createFloatingText("摧毁", slot.mesh.position, "#ff4757");
                     this.log(`攻破并摧毁了敌方 ${name}，获得 ${rewards.gold}G 和 ${rewards.exp}EXP。胜利不消耗行动。`);
@@ -7159,9 +7312,9 @@
                     return;
                 }
 
-                const cost = this.getGuardRecruitCost(slot);
+                const cost = this.getMinimumGuardRecruitCost(player, slot);
                 if (player.gold < cost) {
-                    this.log(`金币不足，招募守军需要 ${cost}G。`);
+                    this.log(`金币不足，当前至少需要 ${cost}G 才能补入守军。`);
                     return;
                 }
 
@@ -7172,14 +7325,16 @@
                 this.resetGuardTransferMenu();
                 document.querySelector('#build-menu .build-options').style.display = 'none';
                 const options = document.getElementById('guard-recruit-options');
-                const cost = this.getGuardRecruitCost(slot);
+                const cost = this.getMinimumGuardRecruitCost(player, slot);
                 options.innerHTML = '';
-                document.getElementById('build-desc').innerText = `选择要补入的守军。当前花费 ${cost}G，新守军会继承 ${this.getFacilityName(slot)} 的驻军训练，不同守军会直接影响攻城战表现。当前路口偏好补员：${this.guardArchetypes.find(guard => guard.key === this.getNodePreferredGuardRole(slot, this.getNodeOwnedFacilities(player)))?.name || '通用守军'}。`;
+                document.getElementById('build-desc').innerText = `选择要补入的守军。当前至少花费 ${cost}G，新守军会继承 ${this.getFacilityName(slot)} 的驻军训练，不同守军会直接影响攻城战表现。当前路口偏好补员：${this.guardArchetypes.find(guard => guard.key === this.getNodePreferredGuardRole(slot, this.getNodeOwnedFacilities(player)))?.name || '通用守军'}。预备队：${this.getGuardReserveSummaryText(player)}。`;
 
                 this.guardArchetypes.forEach(archetype => {
-                    const copy = this.getGuardRecruitMenuCopy(archetype, slot);
+                    const copy = this.getGuardRecruitMenuCopy(archetype, slot, player);
+                    const optionCost = this.getGuardRecruitOptionCost(player, slot, archetype.key);
                     const btn = document.createElement('button');
                     btn.className = 'battle-card';
+                    btn.disabled = player.gold < optionCost;
                     btn.onclick = () => this.recruitSpecificGuard(archetype.key);
                     btn.innerHTML = `<strong>${copy.title}</strong><span>${copy.text}</span>`;
                     options.appendChild(btn);
@@ -7197,21 +7352,35 @@
                 const player = this.players[this.currentPlayerIndex];
                 const slot = this.selectedSlot;
                 if (!slot || slot.owner !== player || slot.type === 'EMPTY') return;
-                this.performRecruitGuard(player, slot, roleKey);
+                if (!this.performRecruitGuard(player, slot, roleKey)) return;
                 document.getElementById('build-menu').style.display = 'none';
                 this.updateUI();
                 this.finishAction(true);
             },
 
             performRecruitGuard(player, slot, roleKey = null) {
-                const cost = this.getGuardRecruitCost(slot);
+                const reserve = this.getReserveGuardForRole(player, roleKey);
+                const cost = reserve
+                    ? this.getGuardReserveDeployCost(slot, reserve)
+                    : this.getGuardRecruitCost(slot);
+                if (player.gold < cost) {
+                    this.log(`金币不足，当前补入 ${this.guardArchetypes.find(archetype => archetype.key === roleKey)?.name || '守军'} 需要 ${cost}G。`);
+                    return false;
+                }
                 player.gold -= cost;
-                const guard = this.createGuard(slot, roleKey);
+                const guard = reserve
+                    ? this.consumeGuardReserve(player, roleKey)
+                    : this.createGuard(slot, roleKey);
+                if (!guard) return false;
+                guard.hp = guard.maxHp;
                 slot.guards.push(guard);
-                slot.defense += 6 + slot.level * 2;
+                slot.defense += (reserve ? 4 : 6) + slot.level * 2;
                 this.updateGuardMarkers(slot);
                 this.createFloatingText("+守军", slot.mesh.position, "#1e90ff");
-                this.log(`花费 ${cost}G 为 ${this.getFacilityName(slot)} 招募了 ${guard.name}，继承了${guard.training?.label || '通用操练'}。`);
+                this.log(reserve
+                    ? `花费 ${cost}G 将预备队里的 ${guard.name} 安插到 ${this.getFacilityName(slot)}，保留了${guard.training?.label || '原有操练'}。`
+                    : `花费 ${cost}G 为 ${this.getFacilityName(slot)} 招募了 ${guard.name}，继承了${guard.training?.label || '通用操练'}。`);
+                return true;
             },
 
             demolishSelectedFacility() {
