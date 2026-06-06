@@ -4761,6 +4761,70 @@
                 return { cardId, summary };
             },
 
+            applyEnemyPreparedBattleSupport(enemyState) {
+                const owner = enemyState?.slot?.owner;
+                if (!owner || !enemyState?.facilityType) return null;
+
+                const prepared = this.consumePreparedBattleCard(owner);
+                if (!prepared) return null;
+
+                const card = this.cardLibrary[prepared.cardId];
+                if (!card) return null;
+
+                const support = {
+                    cardId: prepared.cardId,
+                    cardName: card.name,
+                    summary: prepared.summary,
+                    tauntLine: `墙后已经把 ${card.name} 准备好了，就等你撞上来。`,
+                    visualText: card.name,
+                    visualColor: "#ff9f43",
+                    logLine: `敌方把 ${card.name} 调进了这场守城战。`
+                };
+
+                if (card.kind === 'heal') {
+                    const heal = Math.max(4, Math.floor((card.heal || 0) * 0.7));
+                    enemyState.hp = Math.min(enemyState.maxHp, enemyState.hp + heal);
+                    if (enemyState.phase === 'wall') {
+                        enemyState.wallHp = enemyState.hp;
+                    } else {
+                        enemyState.guardHp = enemyState.hp;
+                    }
+                    support.visualText = `+${heal}HP`;
+                    support.visualColor = "#2ed573";
+                    support.logLine = `敌方在开战前启用了 ${card.name}，当前阶段恢复 ${heal} HP。`;
+                    support.tauntLine = `${card.name} 已经送到墙后，你先想想怎么破开这口气。`;
+                    return support;
+                }
+
+                if (card.kind === 'defend') {
+                    const armorGain = Math.max(1, Math.floor((card.block || 8) / 4));
+                    if (enemyState.phase === 'wall') {
+                        enemyState.wallArmor = (enemyState.wallArmor || 0) + armorGain;
+                    } else {
+                        enemyState.guardArmor = (enemyState.guardArmor || 0) + armorGain;
+                    }
+                    support.visualText = `护甲 +${armorGain}`;
+                    support.visualColor = "#70a1ff";
+                    support.logLine = `敌方在战前展开 ${card.name}，当前阶段护甲 +${armorGain}。`;
+                    support.tauntLine = `${card.name} 已经压到前线了，你第一轮砸上来也只会先碰墙。`;
+                    return support;
+                }
+
+                const baseWallAtk = enemyState.wallAtk || enemyState.atk || 4;
+                const baseGuardAtk = enemyState.guardAtk || enemyState.atk || 4;
+                const atkGain = card.kind === 'buff'
+                    ? Math.max(1, card.atk || 1)
+                    : Math.max(1, Math.ceil((card.power || 6) / 6));
+                enemyState.atk += atkGain;
+                enemyState.wallAtk = baseWallAtk + atkGain;
+                enemyState.guardAtk = baseGuardAtk + atkGain;
+                support.visualText = `ATK +${atkGain}`;
+                support.visualColor = "#ffb142";
+                support.logLine = `敌方在开战前压上 ${card.name}，本场攻势 +${atkGain}。`;
+                support.tauntLine = `${card.name} 已经送到阵前了，今天先拿你试刀。`;
+                return support;
+            },
+
             getPreparedBattleSummaryText(player) {
                 if (!player?.preparedBattleSummary || player.preparedBattleSummary.length === 0) {
                     return '暂无战前筹备牌';
@@ -5894,7 +5958,6 @@
                     });
                     this.processOwnedFacilityCommandManual(player, slot);
                     this.grantSlotGuardExp(slot, 2, '训练营操练');
-                    this.processOwnedFacilityCommandManual(slot.owner, slot);
                 } else if (slot.type === 'BARRACKS') {
                     const guardHeal = 7 + slot.level * 3;
                     let trained = 0;
@@ -5941,7 +6004,6 @@
                     this.processOwnedFacilityCommandManual(player, slot);
                     if (trained > 0) {
                         this.grantSlotGuardExp(slot, 2, '兵营整训');
-                    this.processOwnedFacilityCommandManual(slot.owner, slot);
                     }
                 } else if (slot.type === 'WORKSHOP') {
                     const selfFortify = 4 + slot.level * 2;
@@ -7410,7 +7472,9 @@
                     if (enemyState.monsterType === 'CASTER') return `${enemyState.name}: 孢团已经鼓起来了，你走不出这片湿地！`;
                     return `${enemyState.name}: 咕噜咕噜！先赢过我再说！`;
                 }
-
+                if (enemyState.preparedSupport?.tauntLine) {
+                    return `${enemyState.facilityName}: ${enemyState.preparedSupport.tauntLine}`;
+                }
                 const comboLine = this.getTrainingComboBattleLine(enemyState.trainingCombo);
                 if (comboLine) {
                     return `${enemyState.facilityName}: ${comboLine}`;
@@ -8285,10 +8349,22 @@
                 document.getElementById('btn-end').style.display = 'none';
 
                 const enemyState = this.createEnemyBattleState(enemy, kind);
+                const enemyPreparedSupport = kind === 'facility'
+                    ? this.applyEnemyPreparedBattleSupport(enemyState)
+                    : null;
+                const enemyMesh = enemy.meshGroup || (sourceSlot ? sourceSlot.mesh : null);
+                const enemyPos = enemyMesh ? enemyMesh.position : attacker.meshGroup.position;
                 this.log(`${attacker.name} 向 ${enemyState.name} 发起战斗！`);
                 this.updateBattleStatus(attacker, enemyState, 0);
 
                 await this.enterBattleScene(attacker, enemy);
+                if (enemyPreparedSupport) {
+                    enemyState.preparedSupport = enemyPreparedSupport;
+                    this.log(enemyPreparedSupport.logLine);
+                    this.createFloatingText(enemyPreparedSupport.visualText, enemyPos, enemyPreparedSupport.visualColor);
+                    this.updateBattleStatus(attacker, enemyState, 0);
+                    await this.wait(220);
+                }
                 await this.showTauntSequence(attacker, enemyState, kind);
                 if (attacker.isPlayer) {
                     const supportPackage = this.getBattleSupportPackage(attacker);
@@ -8309,8 +8385,6 @@
                         this.log("这场战斗没有同路块建筑或守军支援，只能靠当前牌库硬闯。");
                     }
                 }
-                const enemyMesh = enemy.meshGroup || (sourceSlot ? sourceSlot.mesh : null);
-                const enemyPos = enemyMesh ? enemyMesh.position : attacker.meshGroup.position;
 
                 let fled = false;
                 for (let round = 1; round <= 8 && attacker.hp > 0 && enemyState.hp > 0; round++) {
