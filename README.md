@@ -2,7 +2,7 @@
 
 Dice & Camps is a single-page WebGL prototype that blends board-game dice movement with light RPG adventure and camp-building systems.<br/>**《骰子与营地》是一个单页 WebGL 原型，融合了大富翁式掷骰移动、轻量 RPG 冒险和营地建设系统。**
 
-The current version is an all-in-one static HTML game built with Three.js r128 and Tween.js from CDN links.<br/>**当前版本是一个单文件静态 HTML 游戏，通过 CDN 引入 Three.js r128 和 Tween.js。**
+The current version is an all-in-one static HTML game built with local vendored Three.js r128 and Tween.js modules.<br/>**当前版本是一个单文件静态 HTML 游戏，使用本地 `vendor/` 里的 Three.js r128 和 Tween.js 模块。**
 
 ## Features
 

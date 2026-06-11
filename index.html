@@ -161,6 +161,60 @@
             display: none;
             text-align: center;
         }
+        #action-choice-menu {
+            position: absolute;
+            left: 50%;
+            bottom: 118px;
+            transform: translateX(-50%);
+            display: none;
+            width: min(520px, calc(100vw - 32px));
+            text-align: center;
+            z-index: 20;
+        }
+        .action-choice-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 14px;
+        }
+        .action-choice-btn {
+            min-height: 68px;
+            padding: 10px 12px;
+            border: 3px solid #111;
+            border-radius: 8px;
+            background: #fff8e8;
+            color: #111;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 4px 0 #111;
+        }
+        .action-choice-btn strong,
+        .action-choice-btn span {
+            display: block;
+        }
+        .action-choice-btn strong {
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+        .action-choice-btn span {
+            font-size: 12px;
+            line-height: 1.3;
+        }
+        .action-choice-btn.active {
+            background: #ffeaa7;
+        }
+        .action-choice-btn.finish {
+            background: #dff9fb;
+        }
+        .action-choice-btn:active {
+            transform: translateY(4px);
+            box-shadow: none;
+        }
+        .action-choice-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            box-shadow: 0 4px 0 #666;
+        }
         .build-options { display: flex; gap: 10px; margin-top: 15px; }
         .build-btn { padding: 10px; border: 2px solid #333; border-radius: 8px; cursor: pointer; font-weight: bold; }
         .build-btn.trap { background: #a55eea; color: white; }
@@ -264,6 +318,10 @@
             gap: 10px;
             align-items: stretch;
             min-width: 0;
+        }
+        .battle-hand-row {
+            flex: 1 1 auto;
+            justify-content: center;
         }
         #battle-status {
             position: absolute;
@@ -406,6 +464,21 @@
         }
         .battle-card.flee {
             background: #ced6e0;
+        }
+        .battle-card.attack {
+            background: #ffe6ec;
+        }
+        .battle-card.defend {
+            background: #dff9fb;
+        }
+        .battle-card.skill {
+            background: #ffeaa7;
+        }
+        .battle-card.heal {
+            background: #e5ffef;
+        }
+        .battle-card.buff {
+            background: #fff2d9;
         }
         .battle-card.back {
             background: #f1f2f6;
@@ -723,15 +796,15 @@
             <h3 style="margin-top:0;">建造地块操作</h3>
             <p id="build-desc">选择要建造的设施：</p>
             <div class="build-options">
-                <button id="btn-build-trap" class="build-btn trap" onclick="Game.buildFacility('TRAP')">陷阱 (50G)</button>
-                <button id="btn-build-guard" class="build-btn guard" onclick="Game.buildFacility('GUARD')">守卫 (80G)</button>
-                <button id="btn-build-income" class="build-btn income" onclick="Game.buildFacility('INCOME')">金矿 (100G)</button>
-                <button id="btn-build-heal" class="build-btn heal" onclick="Game.buildFacility('HEAL')">治疗营地 (90G)</button>
-                <button id="btn-build-training" class="build-btn training" onclick="Game.buildFacility('TRAINING')">训练营 (120G)</button>
-                <button id="btn-build-barracks" class="build-btn barracks" onclick="Game.buildFacility('BARRACKS')">兵营 (110G)</button>
-                <button id="btn-build-command" class="build-btn command" onclick="Game.buildFacility('COMMAND')">指挥所 (125G)</button>
-                <button id="btn-build-fortress" class="build-btn fortress" onclick="Game.buildFacility('FORTRESS')">堡垒 (140G)</button>
-                <button id="btn-build-workshop" class="build-btn workshop" onclick="Game.buildFacility('WORKSHOP')">城防工坊 (130G)</button>
+                <button id="btn-build-trap" class="build-btn trap" onclick="Game.buildFacility('TRAP')">陷阱</button>
+                <button id="btn-build-guard" class="build-btn guard" onclick="Game.buildFacility('GUARD')">守卫</button>
+                <button id="btn-build-income" class="build-btn income" onclick="Game.buildFacility('INCOME')">金矿</button>
+                <button id="btn-build-heal" class="build-btn heal" onclick="Game.buildFacility('HEAL')">治疗营地</button>
+                <button id="btn-build-training" class="build-btn training" onclick="Game.buildFacility('TRAINING')">训练营</button>
+                <button id="btn-build-barracks" class="build-btn barracks" onclick="Game.buildFacility('BARRACKS')">兵营</button>
+                <button id="btn-build-command" class="build-btn command" onclick="Game.buildFacility('COMMAND')">指挥所</button>
+                <button id="btn-build-fortress" class="build-btn fortress" onclick="Game.buildFacility('FORTRESS')">堡垒</button>
+                <button id="btn-build-workshop" class="build-btn workshop" onclick="Game.buildFacility('WORKSHOP')">城防工坊</button>
                 <button id="btn-upgrade-facility" class="build-btn upgrade" onclick="Game.upgradeSelectedFacility()">升级</button>
                 <button id="btn-recruit-guard" class="build-btn recruit" onclick="Game.recruitGuardForSelectedFacility()">招募守军</button>
                 <button id="btn-transfer-guard" class="build-btn transfer" onclick="Game.openGuardTransferMenu()">调防守军</button>
@@ -742,6 +815,17 @@
             </div>
             <div id="guard-recruit-options" class="build-options" style="display:none;"></div>
             <div id="guard-transfer-options" class="build-options" style="display:none;"></div>
+        </div>
+
+        <div id="action-choice-menu" class="panel">
+            <h3 style="margin-top:0;">行动阶段</h3>
+            <p id="action-choice-desc">请选择本回合要进行的操作。</p>
+            <div class="action-choice-grid">
+                <button id="btn-action-build" class="action-choice-btn" onclick="Game.chooseActionSelectionMode('build')"></button>
+                <button id="btn-action-manage" class="action-choice-btn" onclick="Game.chooseActionSelectionMode('manage')"></button>
+                <button id="btn-action-challenge" class="action-choice-btn" onclick="Game.chooseActionSelectionMode('challenge')"></button>
+                <button id="btn-action-finish" class="action-choice-btn finish" onclick="Game.endTurn()"></button>
+            </div>
         </div>
 
         <div id="branch-menu" class="panel">
@@ -783,10 +867,39 @@
     </div>
 
     <!-- 引入 Three.js 和 Tween.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    <script type="module">
+        import * as THREE from './vendor/three.module.min.js';
+        import TWEEN from './vendor/tween.module.js';
 
-    <script>
+        window.THREE = THREE;
+        window.TWEEN = TWEEN;
+
+        function showRuntimeError(error) {
+            const box = document.createElement('div');
+            box.style.cssText = [
+                'position:absolute',
+                'left:50%',
+                'top:50%',
+                'transform:translate(-50%,-50%)',
+                'z-index:9999',
+                'max-width:min(720px,calc(100vw - 32px))',
+                'padding:16px',
+                'border:4px solid #111',
+                'border-radius:8px',
+                'background:#fff8e8',
+                'color:#111',
+                'font:14px/1.45 monospace',
+                'box-shadow:4px 4px 0 rgba(0,0,0,0.25)',
+                'white-space:pre-wrap'
+            ].join(';');
+            const message = error?.stack || error?.message || String(error);
+            box.textContent = `Runtime error:\n${message}`;
+            document.body.appendChild(box);
+        }
+
+        window.addEventListener('error', event => showRuntimeError(event.error || event.message));
+        window.addEventListener('unhandledrejection', event => showRuntimeError(event.reason || 'Unhandled promise rejection'));
+
         // ------------------ 辅助函数：绘制骰子纹理 ------------------
         function createDiceTexture(number) {
             const canvas = document.createElement('canvas');
@@ -873,7 +986,9 @@
             battleHand: [],
             battleSupportCards: [],
             battleSupportSummary: [],
-            battleDrawCount: 3,
+            battleOpeningDrawCount: 5,
+            battleDrawCount: 2,
+            battleTurnDraws: 0,
             diceOccluderSnapshots: [],
             activeDiceMesh: null,
             debugConfig: { enabled: false, scene: '', hold: '', auto: false },
@@ -908,15 +1023,15 @@
                 FIELD_RATIONS: { name: '战场干粮', kind: 'heal', heal: 20, text: '老兵后勤管理更稳，恢复 20HP。' }
             },
             facilityConfigs: {
-                TRAP: { name: '陷阱', cost: 50, color: 0xa55eea, maxLevel: 3, baseDefense: 10, allowsGuards: true, guardSlots: 1 },
-                GUARD: { name: '守卫哨站', cost: 80, color: 0xff4757, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 1 },
-                INCOME: { name: '金矿', cost: 100, color: 0xeccc68, maxLevel: 3, baseDefense: 14, allowsGuards: true, guardSlots: 1 },
-                HEAL: { name: '治疗营地', cost: 90, color: 0x7bed9f, maxLevel: 3, baseDefense: 12, allowsGuards: true, guardSlots: 1 },
-                TRAINING: { name: '训练营', cost: 120, color: 0xffb142, maxLevel: 3, baseDefense: 16, allowsGuards: true, guardSlots: 1 },
-                BARRACKS: { name: '兵营', cost: 110, color: 0xff7f50, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 2 },
-                COMMAND: { name: '指挥所', cost: 125, color: 0x4b7bec, maxLevel: 3, baseDefense: 17, allowsGuards: true, guardSlots: 2 },
-                FORTRESS: { name: '堡垒', cost: 140, color: 0x8c564b, maxLevel: 3, baseDefense: 28, allowsGuards: false, guardSlots: 0 },
-                WORKSHOP: { name: '城防工坊', cost: 130, color: 0x747d8c, maxLevel: 3, baseDefense: 24, allowsGuards: false, guardSlots: 0 }
+                TRAP: { name: '陷阱', cost: 45, color: 0xa55eea, maxLevel: 3, baseDefense: 10, allowsGuards: true, guardSlots: 1 },
+                GUARD: { name: '守卫哨站', cost: 68, color: 0xff4757, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 1 },
+                INCOME: { name: '金矿', cost: 86, color: 0xeccc68, maxLevel: 3, baseDefense: 14, allowsGuards: true, guardSlots: 1 },
+                HEAL: { name: '治疗营地', cost: 76, color: 0x7bed9f, maxLevel: 3, baseDefense: 12, allowsGuards: true, guardSlots: 1 },
+                TRAINING: { name: '训练营', cost: 102, color: 0xffb142, maxLevel: 3, baseDefense: 16, allowsGuards: true, guardSlots: 1 },
+                BARRACKS: { name: '兵营', cost: 94, color: 0xff7f50, maxLevel: 3, baseDefense: 18, allowsGuards: true, guardSlots: 2 },
+                COMMAND: { name: '指挥所', cost: 108, color: 0x4b7bec, maxLevel: 3, baseDefense: 17, allowsGuards: true, guardSlots: 2 },
+                FORTRESS: { name: '堡垒', cost: 118, color: 0x8c564b, maxLevel: 3, baseDefense: 28, allowsGuards: false, guardSlots: 0 },
+                WORKSHOP: { name: '城防工坊', cost: 110, color: 0x747d8c, maxLevel: 3, baseDefense: 24, allowsGuards: false, guardSlots: 0 }
             },
             guardArchetypes: [
                 { key: 'SHIELD', name: '盾卫', maxHp: 28, atk: 4, color: 0x70a1ff },
@@ -930,7 +1045,7 @@
                     hp: 32,
                     atk: 5,
                     exp: 22,
-                    gold: 28,
+                    gold: 36,
                     color: 0x20bf6b,
                     rewardPool: ['STRIKE', 'GUARD_UP', 'TOWER_GUARD', 'MEND', 'RALLY'],
                     trait: '皮厚冲撞型，喜欢正面顶上来'
@@ -941,7 +1056,7 @@
                     hp: 24,
                     atk: 7,
                     exp: 24,
-                    gold: 26,
+                    gold: 34,
                     color: 0x6c5ce7,
                     rewardPool: ['AMBUSH', 'FIELD_DRESS', 'RALLY', 'STRIKE', 'SUPPLY_LINE'],
                     trait: '游击扑杀型，会侧翼切入和回身整势'
@@ -952,13 +1067,13 @@
                     hp: 27,
                     atk: 6,
                     exp: 26,
-                    gold: 30,
+                    gold: 38,
                     color: 0x00a8cc,
                     rewardPool: ['FIREBALL', 'MEND', 'SUPPLY_LINE', 'RALLY', 'FIELD_DRESS'],
                     trait: '施法消耗型，会喷吐孢团并自我回生'
                 }
             ],
-            guardRecruitCost: 65,
+            guardRecruitCost: 52,
             cameraOffset: new THREE.Vector3(0, 0, 0),
             cameraTarget: new THREE.Vector3(0, 0, 0),
             dragStartPos: {x:0, y:0},
@@ -971,6 +1086,7 @@
             hoveredSlot: null,
             hoveredBranchArrow: null,
             hoveredInfoTarget: null,
+            actionSelectionMode: null,
             branchChoiceArrows: [],
             branchChoiceResolver: null,
             guardTransferSource: null,
@@ -983,6 +1099,10 @@
             roadHoverColor: 0x2ed573,
             slotTileColor: 0xdfe4ea,
             slotHoverColor: 0xfeca57,
+            slotBuildValidColor: 0x7bed9f,
+            slotBuildInvalidColor: 0xff6b81,
+            slotManageValidColor: 0x70a1ff,
+            slotChallengeValidColor: 0xffb142,
             branchArrowColor: 0x1e90ff,
             branchArrowHoverColor: 0xfff3bf,
 
@@ -1008,6 +1128,143 @@
                     ...contextPatch,
                     phase: nextPhase
                 };
+            },
+
+            getAdjacentSlotsForNode(node) {
+                if (!node) return [];
+                return this.slots.filter(slot => {
+                    const dx = Math.abs(slot.x - node.x);
+                    const dz = Math.abs(slot.z - node.z);
+                    return (dx === this.mapStep && dz === 0) || (dx === 0 && dz === this.mapStep);
+                });
+            },
+
+            getActiveActionSlots() {
+                if (!this.activeNode) return [];
+                return [...new Set([
+                    ...(this.activeNode.slots || []),
+                    ...this.getAdjacentSlotsForNode(this.activeNode)
+                ])];
+            },
+
+            getAffordableBuildTypes(player) {
+                return Object.entries(this.facilityConfigs)
+                    .filter(([, config]) => player.gold >= config.cost)
+                    .map(([type]) => type);
+            },
+
+            getActionChoiceSummary(player) {
+                const slots = this.getActiveActionSlots();
+                const affordableTypes = this.getAffordableBuildTypes(player);
+                const buildableSlots = slots.filter(slot => slot.type === 'EMPTY' && !slot.monster);
+                const ownedSlots = slots.filter(slot => slot.owner === player && slot.type !== 'EMPTY');
+                const upgradableSlots = ownedSlots.filter(slot => !this.isFacilityMaxLevel(slot) && player.gold >= this.getUpgradeCost(slot));
+                const challengeSlots = slots.filter(slot =>
+                    (slot.type === 'EMPTY' && slot.monster)
+                    || (slot.owner && slot.owner !== player && slot.type !== 'EMPTY')
+                );
+                return {
+                    buildableSlots,
+                    ownedSlots,
+                    upgradableSlots,
+                    challengeSlots,
+                    canBuild: buildableSlots.length > 0 && affordableTypes.length > 0,
+                    canManage: ownedSlots.length > 0,
+                    canChallenge: challengeSlots.length > 0
+                };
+            },
+
+            showActionChoiceMenu(player) {
+                const menu = document.getElementById('action-choice-menu');
+                if (!player?.isPlayer || this.state !== TurnState.ACTION_SELECT) {
+                    menu.style.display = 'none';
+                    return;
+                }
+
+                const summary = this.getActionChoiceSummary(player);
+                const buildBtn = document.getElementById('btn-action-build');
+                const manageBtn = document.getElementById('btn-action-manage');
+                const challengeBtn = document.getElementById('btn-action-challenge');
+                const finishBtn = document.getElementById('btn-action-finish');
+                const desc = document.getElementById('action-choice-desc');
+
+                buildBtn.disabled = !summary.canBuild;
+                manageBtn.disabled = !summary.canManage;
+                challengeBtn.disabled = !summary.canChallenge;
+
+                buildBtn.classList.toggle('active', this.actionSelectionMode === 'build');
+                manageBtn.classList.toggle('active', this.actionSelectionMode === 'manage');
+                challengeBtn.classList.toggle('active', this.actionSelectionMode === 'challenge');
+
+                buildBtn.innerHTML = `<strong>建造建筑</strong><span>${summary.buildableSlots.length} 个可建地块${summary.canBuild ? '' : '（金币不足或无空地）'}</span>`;
+                manageBtn.innerHTML = `<strong>升级/管理</strong><span>${summary.ownedSlots.length} 座我方建筑${summary.upgradableSlots.length > 0 ? `，${summary.upgradableSlots.length} 座可升级` : ''}</span>`;
+                challengeBtn.innerHTML = `<strong>发起挑战</strong><span>${summary.challengeSlots.length} 个目标（敌方建筑/野怪）</span>`;
+                finishBtn.innerHTML = '<strong>完成行动</strong><span>不再建造或进攻，直接结束回合</span>';
+
+                const modeDescriptions = {
+                    build: '已选择【建造】。绿色可建，红色表示这块地目前不能建造。',
+                    manage: '已选择【升级/管理】。选择自己的建筑，可升级、招募、调防或拆毁。',
+                    challenge: '已选择【挑战】。选择敌方建筑或野怪来发起战斗。'
+                };
+                desc.innerText = modeDescriptions[this.actionSelectionMode] || '请先选择本回合要进行的操作。';
+                menu.style.display = 'block';
+            },
+
+            hideActionChoiceMenu() {
+                document.getElementById('action-choice-menu').style.display = 'none';
+            },
+
+            chooseActionSelectionMode(mode) {
+                if (this.state !== TurnState.ACTION_SELECT) return;
+                const player = this.players[this.currentPlayerIndex];
+                const summary = this.getActionChoiceSummary(player);
+                if (mode === 'build' && !summary.canBuild) return;
+                if (mode === 'manage' && !summary.canManage) return;
+                if (mode === 'challenge' && !summary.canChallenge) return;
+
+                this.actionSelectionMode = mode;
+                this.selectedSlot = null;
+                this.resetGuardTransferMenu();
+                this.stopSlotHighlightOnly();
+                this.showActionChoiceMenu(player);
+            },
+
+            getSlotActionProfile(slot, mode = this.actionSelectionMode, player = this.players[this.currentPlayerIndex]) {
+                if (this.state !== TurnState.ACTION_SELECT || !slot) {
+                    return { visible: false, clickable: false, baseColor: this.slotTileColor, hoverColor: this.slotHoverColor, reason: '' };
+                }
+                if (!this.getActiveActionSlots().includes(slot)) {
+                    return { visible: false, clickable: false, baseColor: this.slotTileColor, hoverColor: this.slotHoverColor, reason: '' };
+                }
+
+                if (mode === 'build') {
+                    if (slot.type === 'EMPTY' && !slot.monster) {
+                        return { visible: true, clickable: true, baseColor: this.slotBuildValidColor, hoverColor: this.roadHoverColor, reason: 'build' };
+                    }
+                    return {
+                        visible: true,
+                        clickable: false,
+                        baseColor: this.slotBuildInvalidColor,
+                        hoverColor: 0xff4757,
+                        reason: slot.monster ? 'monster' : 'occupied'
+                    };
+                }
+
+                if (mode === 'manage') {
+                    if (slot.owner === player && slot.type !== 'EMPTY') {
+                        return { visible: true, clickable: true, baseColor: this.slotManageValidColor, hoverColor: this.branchArrowColor, reason: 'manage' };
+                    }
+                    return { visible: false, clickable: false, baseColor: this.slotTileColor, hoverColor: this.slotHoverColor, reason: '' };
+                }
+
+                if (mode === 'challenge') {
+                    if ((slot.type === 'EMPTY' && slot.monster) || (slot.owner && slot.owner !== player && slot.type !== 'EMPTY')) {
+                        return { visible: true, clickable: true, baseColor: this.slotChallengeValidColor, hoverColor: 0xff7f50, reason: 'challenge' };
+                    }
+                    return { visible: false, clickable: false, baseColor: this.slotTileColor, hoverColor: this.slotHoverColor, reason: '' };
+                }
+
+                return { visible: false, clickable: false, baseColor: this.slotTileColor, hoverColor: this.slotHoverColor, reason: '' };
             },
 
             readDebugConfig() {
@@ -1435,7 +1692,7 @@
 
                 nodeDefs.forEach((def, i) => {
                     const { x, z } = def;
-                    const nodeMesh = this.createToonBox(1.45, 0.48, 1.45, this.roadTileColor);
+                    const nodeMesh = this.createToonBox(1.62, 0.48, 1.62, this.roadTileColor);
                     nodeMesh.userData.baseY = 0;
                     nodeMesh.userData.floatingTile = true;
                     nodeMesh.position.set(x, -8, z);
@@ -1465,6 +1722,8 @@
             },
 
             createRoadSegments() {
+                this.roadSegments = [];
+                return;
                 const created = new Set();
                 this.nodes.forEach(node => {
                     const targets = [
@@ -1525,7 +1784,7 @@
                     if (node.z === this.mapBounds.maxZ) outward.push(...available.filter(dir => dir.edge === 'north'));
                     if (node.x === this.mapBounds.minX) outward.push(...available.filter(dir => dir.edge === 'west'));
                     if (node.x === this.mapBounds.maxX) outward.push(...available.filter(dir => dir.edge === 'east'));
-                    const shouldCreate = isCornerNode || node.id % 2 === 0;
+                    const shouldCreate = isCornerNode || node.id % 4 !== 1;
                     if (shouldCreate) (outward.length > 0 ? outward : available.slice(0, 1)).forEach(createFromDirection);
                     return;
                 }
@@ -1535,7 +1794,7 @@
                     return;
                 }
 
-                if (available.length > 0 && node.id % 3 === 0) {
+                if (available.length > 0 && node.id % 2 === 0) {
                     const index = Math.abs(node.id + node.x * 3 + node.z) % available.length;
                     createFromDirection(available[index]);
                 }
@@ -1568,11 +1827,16 @@
             },
 
             animateMapIntro() {
-                this.getMapIntroObjects().forEach((mesh, index) => {
+                const objects = this.getMapIntroObjects();
+                const metrics = objects.map(mesh => mesh.position.x + mesh.position.z);
+                const minMetric = metrics.length ? Math.min(...metrics) : 0;
+                const maxMetric = metrics.length ? Math.max(...metrics) : 1;
+                objects.forEach((mesh, index) => {
                     const baseY = mesh.userData.baseY ?? mesh.position.y;
+                    const delay = this.getSweepDelay(mesh.position, minMetric, maxMetric, 260);
                     new TWEEN.Tween(mesh.position)
-                        .to({ y: baseY }, 720)
-                        .delay(index * 22)
+                        .to({ y: baseY }, 460)
+                        .delay(delay)
                         .easing(TWEEN.Easing.Elastic.Out)
                         .onComplete(() => {
                             if (mesh.userData.startFloatAfterIntro) mesh.userData.startFloatAfterIntro();
@@ -1616,7 +1880,7 @@
                     return slotOverlap;
                 }
 
-                const slotMesh = this.createToonBox(1.3, 0.36, 1.3, this.slotTileColor);
+                const slotMesh = this.createToonBox(1.42, 0.36, 1.42, this.slotTileColor);
                 slotMesh.userData.baseY = 0.05;
                 slotMesh.userData.floatingTile = true;
                 slotMesh.userData.floatAmplitude = 0.055;
@@ -1767,8 +2031,8 @@
                         id: i, isPlayer: i === 0, name: names[i], color: colors[i],
                         meshGroup: group, bodyMesh: mesh, stancePad,
                         nodeIndex: 0,
-                        hp: 50, maxHp: 50, atk: 10, gold: 200, exp: 0, level: 1,
-                        deck: ['STRIKE', 'STRIKE', 'STRIKE', 'GUARD_UP', 'GUARD_UP', 'FIREBALL'],
+                        hp: 50, maxHp: 50, atk: 10, gold: 260, exp: 0, level: 1,
+                        deck: ['STRIKE', 'STRIKE', 'STRIKE', 'STRIKE', 'GUARD_UP', 'GUARD_UP', 'GUARD_UP', 'FIREBALL', 'MEND', 'RALLY'],
                         drawPile: [],
                         discardPile: [],
                         preparedBattleCards: [],
@@ -1882,7 +2146,10 @@
             async chooseNextNodeIndex(node, player, allowPlayerChoice = true) {
                 const options = node.nextOptions || [{ target: node.next, weight: 1 }];
                 if (options.length === 1) return options[0].target;
-                if (player.isPlayer && allowPlayerChoice) return await this.waitForBranchChoice(node, options);
+                if (player.isPlayer) {
+                    if (allowPlayerChoice) return await this.waitForBranchChoice(node, options);
+                    return node.next;
+                }
 
                 const choice = options[Math.floor(Math.random() * options.length)];
                 if (choice.target !== node.next) {
@@ -1922,26 +2189,48 @@
             },
 
             createBranchChoiceArrow(node, target, option) {
-                const dx = Math.sign(target.x - node.x);
-                const dz = Math.sign(target.z - node.z);
+                const dx = target.x - node.x;
+                const dz = target.z - node.z;
+                const angle = Math.atan2(dx, dz);
+                const midX = (node.x + target.x) * 0.5;
+                const midZ = (node.z + target.z) * 0.5;
                 const group = new THREE.Group();
-                group.position.set(0, 0.34, 0);
-                group.rotation.y = Math.atan2(-dx, -dz);
+                group.position.set(midX, 0.22, midZ);
+                group.rotation.y = angle;
 
                 const mat = new THREE.MeshToonMaterial({ color: this.branchArrowColor });
-                const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.08, 0.72), mat);
-                shaft.position.z = -0.14;
-                const head = new THREE.Mesh(new THREE.ConeGeometry(0.34, 0.52, 3), mat);
-                head.rotation.x = -Math.PI / 2;
-                head.position.z = -0.62;
+                const arrowShape = new THREE.Shape();
+                arrowShape.moveTo(-0.22, -0.46);
+                arrowShape.lineTo(0.22, -0.46);
+                arrowShape.lineTo(0.22, 0.02);
+                arrowShape.lineTo(0.42, 0.02);
+                arrowShape.lineTo(0, 0.56);
+                arrowShape.lineTo(-0.42, 0.02);
+                arrowShape.lineTo(-0.22, 0.02);
+                arrowShape.lineTo(-0.22, -0.46);
+
+                const arrowGeom = new THREE.ShapeGeometry(arrowShape);
+                const arrowFace = new THREE.Mesh(arrowGeom, mat);
+                arrowFace.rotation.x = -Math.PI / 2;
+                arrowFace.position.y = 0;
+
+                const outline = new THREE.Mesh(
+                    arrowGeom,
+                    new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide })
+                );
+                outline.rotation.x = -Math.PI / 2;
+                outline.position.y = -0.01;
+                outline.scale.set(1.12, 1.12, 1.12);
+
                 const hit = new THREE.Mesh(
-                    new THREE.BoxGeometry(0.82, 0.18, 1.22),
+                    new THREE.PlaneGeometry(1.18, 1.28),
                     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
                 );
-                hit.position.set(0, 0.03, -0.34);
+                hit.rotation.x = -Math.PI / 2;
+                hit.position.y = 0.02;
 
-                group.add(shaft, head, hit);
-                node.mesh.add(group);
+                group.add(outline, arrowFace, hit);
+                this.scene.add(group);
 
                 const arrow = {
                     node,
@@ -1949,7 +2238,7 @@
                     option,
                     group,
                     material: mat,
-                    meshes: [shaft, head, hit]
+                    meshes: [arrowFace, hit]
                 };
                 group.userData.branchArrow = arrow;
                 arrow.meshes.forEach(mesh => {
@@ -2041,19 +2330,14 @@
             },
 
             liftDiceAboveCharacters() {
-                const roots = [
-                    ...this.players.map(player => player.meshGroup).filter(Boolean),
-                    ...this.monsters.map(monster => monster.meshGroup).filter(Boolean)
-                ];
-                roots.forEach(root => {
-                    root.traverse(child => {
-                        if (!child.material) return;
-                        const materials = Array.isArray(child.material) ? child.material : [child.material];
-                        materials.forEach(material => {
-                            this.snapshotDiceMaterial(material);
-                            material.depthWrite = false;
-                            material.needsUpdate = true;
-                        });
+                if (!this.activeDiceMesh) return;
+                this.activeDiceMesh.traverse(child => {
+                    if (!child.material) return;
+                    child.renderOrder = 120;
+                    const materials = Array.isArray(child.material) ? child.material : [child.material];
+                    materials.forEach(material => {
+                        material.depthTest = false;
+                        material.needsUpdate = true;
                     });
                 });
             },
@@ -2150,7 +2434,7 @@
             },
 
             getUpgradeCost(slot) {
-                return 50 + slot.level * 35;
+                return 38 + slot.level * 28;
             },
 
             getUpgradeDefenseGain(slot) {
@@ -2177,7 +2461,7 @@
             },
 
             getGuardRecruitCost(slot) {
-                return this.guardRecruitCost + slot.guards.length * 25 + Math.max(0, slot.level - 1) * 10;
+                return this.guardRecruitCost + slot.guards.length * 18 + Math.max(0, slot.level - 1) * 8;
             },
 
             getGuardArchetype(preferredKey = null, slot = null) {
@@ -3584,7 +3868,7 @@
 
             getTransferTargets(slot, owner) {
                 if (!slot || !owner) return [];
-                return this.activeNode.slots.filter(other =>
+                return this.getActiveActionSlots().filter(other =>
                     other !== slot
                     && other.owner === owner
                     && other.type !== 'EMPTY'
@@ -3595,7 +3879,7 @@
 
             getNodeOwnedFacilities(owner) {
                 if (!this.activeNode || !owner) return [];
-                return this.activeNode.slots.filter(slot => slot.owner === owner && slot.type !== 'EMPTY');
+                return this.getActiveActionSlots().filter(slot => slot.owner === owner && slot.type !== 'EMPTY');
             },
 
             getNodeOtherOwnedFacilities(slot) {
@@ -5172,7 +5456,7 @@
             getFacilityBattleRewards(slot) {
                 const guardCount = slot.guards?.length || 0;
                 return {
-                    gold: 70 + slot.level * 35 + guardCount * 25 + (slot.type === 'WORKSHOP' ? 20 : 0) + (slot.type === 'COMMAND' ? 15 : 0) + (slot.type === 'FORTRESS' ? 25 : 0),
+                    gold: 85 + slot.level * 38 + guardCount * 28 + (slot.type === 'WORKSHOP' ? 20 : 0) + (slot.type === 'COMMAND' ? 15 : 0) + (slot.type === 'FORTRESS' ? 25 : 0),
                     exp: 30 + slot.level * 15 + guardCount * 10 + (slot.type === 'GUARD' ? 10 : 0) + (slot.type === 'COMMAND' ? 12 : 0) + (slot.type === 'FORTRESS' ? 18 : 0)
                 };
             },
@@ -5285,6 +5569,9 @@
                     btn.style.display = mode === 'build' ? 'inline-block' : 'none';
                     const type = btn.getAttribute('onclick').match(/'([^']+)'/)?.[1];
                     const cost = this.facilityConfigs[type]?.cost || 0;
+                    if (mode === 'build' && type) {
+                        btn.innerText = `${this.getFacilityName(type)} (${cost}G)`;
+                    }
                     btn.disabled = mode === 'build' && player.gold < cost;
                 });
                 const upgradeBtn = document.getElementById('btn-upgrade-facility');
@@ -5359,7 +5646,8 @@
             },
 
             getSlotDisplayColor(slot) {
-                if (this.state === TurnState.ACTION_SELECT && this.activeNode?.slots.includes(slot)) return 0xffffff;
+                const profile = this.getSlotActionProfile(slot);
+                if (profile.visible) return profile.baseColor;
                 return this.slotTileColor;
             },
 
@@ -5456,7 +5744,8 @@
                 }
                 this.hoveredSlot = slot;
                 if (this.hoveredSlot) {
-                    this.hoveredSlot.mesh.material.color.setHex(this.slotHoverColor);
+                    const profile = this.getSlotActionProfile(this.hoveredSlot);
+                    this.hoveredSlot.mesh.material.color.setHex(profile.hoverColor || this.slotHoverColor);
                 }
             },
 
@@ -5644,6 +5933,26 @@
                 tooltip.style.top = `${Math.max(8, y)}px`;
             },
 
+            positionTauntBoxForTarget(element, target, side = 'hero') {
+                if (!element || !target) return;
+                const anchor = target.position ? target.position : target;
+                const world = new THREE.Vector3(anchor.x, anchor.y + 1.8, anchor.z);
+                world.project(this.camera);
+
+                const screenX = (world.x * 0.5 + 0.5) * window.innerWidth;
+                const screenY = (world.y * -0.5 + 0.5) * window.innerHeight;
+                const width = element.offsetWidth || 260;
+                const height = element.offsetHeight || 90;
+                const margin = 12;
+                const x = side === 'enemy'
+                    ? screenX - width + 14
+                    : screenX - 14;
+                const y = screenY - height - 28;
+
+                element.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, x))}px`;
+                element.style.top = `${Math.max(8, Math.min(window.innerHeight - height - 8, y))}px`;
+            },
+
             clearHoverState() {
                 this.setHoveredBranchArrow(null);
                 this.setHoveredSlot(null);
@@ -5660,13 +5969,17 @@
                 const infoTarget = this.pickHoverInfoTarget();
                 this.setHoveredBranchArrow(branchArrow);
                 const slot = this.pickSlot();
-                const node = this.pickNode();
-                this.setHoveredSlot(slot);
-                this.setHoveredNode(node);
+                const slotProfile = this.getSlotActionProfile(slot);
+                this.setHoveredSlot(slotProfile.visible ? slot : null);
+                this.setHoveredNode(null);
                 this.setHoveredInfoTarget(infoTarget, e);
 
                 const canvas = document.getElementById('game-canvas');
-                canvas.style.cursor = branchArrow || infoTarget || slot || node ? 'pointer' : 'default';
+                if (slotProfile.visible && !slotProfile.clickable) {
+                    canvas.style.cursor = 'not-allowed';
+                } else {
+                    canvas.style.cursor = branchArrow || infoTarget || slotProfile.clickable ? 'pointer' : 'default';
+                }
             },
 
             initEvents() {
@@ -5753,6 +6066,7 @@
 
                 document.getElementById('btn-roll').style.display = (p.isPlayer && this.state === TurnState.IDLE) ? 'block' : 'none';
                 document.getElementById('btn-deck').style.display = (p.isPlayer && this.state !== TurnState.BATTLE) ? 'block' : 'none';
+                this.showActionChoiceMenu(p);
                 if (document.getElementById('deck-menu').style.display === 'block') {
                     if (p.isPlayer) {
                         this.renderDeckMenu(p);
@@ -5773,7 +6087,6 @@
                 const p = this.players[this.currentPlayerIndex];
                 const activeDiceNode = this.nodes[p.nodeIndex];
                 this.fadeDiceOccluders(activeDiceNode, 0.36);
-                this.liftDiceAboveCharacters();
                 this.cameraOffset.set(0,0,0); // 视角归位
 
                 // 3D 实体骰子特效
@@ -5803,6 +6116,7 @@
                     });
                 });
                 this.scene.add(dice);
+                this.liftDiceAboveCharacters();
 
                 const result = Math.floor(Math.random() * 6) + 1;
                 this.log(`${p.name} 掷出了 ${result} 点！`);
@@ -5914,7 +6228,8 @@
             async handleLanding(player) {
                 this.transitionTo(TurnState.OWNED_EVENTS);
                 this.activeNode = this.nodes[player.nodeIndex];
-                const slots = this.activeNode.slots;
+                this.actionSelectionMode = null;
+                const slots = this.getActiveActionSlots();
 
                 if (this.activeNode.npc === 'WIZARD') {
                     await this.triggerWizardNode(player);
@@ -6704,7 +7019,7 @@
                         this.createFloatingText("敌方整训", slot.mesh.position, "#ff7f50");
                     }
                     if (slot.guards.length > 0) {
-                        this.grantSlotGuardExp(slot, 2, '鏁屾柟鏁磋');
+                        this.grantSlotGuardExp(slot, 2, '敌方整训');
                     }
                     this.processOwnedFacilityCommandManual(slot.owner, slot);
                 } else if (slot.type === 'COMMAND') {
@@ -6882,21 +7197,16 @@
                 this.transitionTo(TurnState.ACTION_SELECT);
                 this.setActionConsumed(false);
                 this.resetGuardTransferMenu();
-                const slots = this.activeNode.slots;
+                this.actionSelectionMode = null;
+                const slots = this.getActiveActionSlots();
 
-                // 阶段一：地块高亮跳动
-                slots.forEach(s => {
-                    this.stopTileFloat(s.mesh);
-                    const highlightTween = new TWEEN.Tween(s.mesh.position).to({y: 0.2}, 400).yoyo(true).repeat(Infinity).start();
-                    this.slotHighlightTweens.push(highlightTween);
-                    s.mesh.material.color.setHex(0xffffff); // 高亮
-                });
+                this.stopSlotHighlightOnly();
 
                 if (player.isPlayer) {
-                    this.log("请点击闪烁的副地块进行互动/建造。");
-                    document.getElementById('btn-end').style.display = 'block';
+                    this.log("已进入行动阶段。请先在弹窗里选择要做什么。");
+                    document.getElementById('btn-end').style.display = 'none';
+                    this.showActionChoiceMenu(player);
                 } else {
-                    // AI 自动逻辑：优先巩固自己的建筑，再考虑新建。
                     setTimeout(() => {
                         this.stopSlotHighlightOnly();
                         this.performAiBuildAction(player, slots);
@@ -6967,12 +7277,17 @@
             stopSlotHighlightOnly() {
                 this.slotHighlightTweens.forEach(tween => tween.stop());
                 this.slotHighlightTweens = [];
-                if (!this.activeNode) return;
-                this.activeNode.slots.forEach(s => {
+                this.slots.forEach(s => {
                     s.mesh.position.y = s.mesh.userData.baseY ?? 0.05;
-                    s.mesh.material.color.setHex(0xdfe4ea);
+                    s.mesh.material.color.setHex(this.getSlotDisplayColor(s));
                     this.startTileFloat(s.mesh, this.slots.indexOf(s));
                 });
+                if (this.hoveredSlot) {
+                    const profile = this.getSlotActionProfile(this.hoveredSlot);
+                    if (profile.visible) {
+                        this.hoveredSlot.mesh.material.color.setHex(profile.hoverColor || this.slotHoverColor);
+                    }
+                }
             },
 
             handleSlotClickLegacy(slot) {
@@ -7033,12 +7348,11 @@
                 this.enterBuildPhase(this.players[this.currentPlayerIndex]); // 返回阶段一重新选
             },
 
-            handleSlotClick(slot) {
-                if (!this.activeNode.slots.includes(slot)) return;
-
+            openSlotActionMenu(slot) {
                 this.stopSlotHighlightOnly();
                 this.resetGuardTransferMenu();
                 this.selectedSlot = slot;
+                this.hideActionChoiceMenu();
 
                 const player = this.players[this.currentPlayerIndex];
                 this.transitionTo(TurnState.ACTION_MENU);
@@ -7086,6 +7400,23 @@
                 document.getElementById('btn-end').style.display = 'none';
             },
 
+            handleSlotClick(slot) {
+                const player = this.players[this.currentPlayerIndex];
+                if (!this.getActiveActionSlots().includes(slot)) return;
+
+                const profile = this.getSlotActionProfile(slot, this.actionSelectionMode, player);
+                if (!profile.visible) return;
+                if (!profile.clickable) {
+                    if (this.actionSelectionMode === 'build') {
+                        this.log(profile.reason === 'monster'
+                            ? "这块地被野怪占着，先按【挑战】去解决它。"
+                            : "这块地已经被占用，不能再用来建造。");
+                    }
+                    return;
+                }
+                this.openSlotActionMenu(slot);
+            },
+
             openGuardTransferMenu() {
                 const player = this.players[this.currentPlayerIndex];
                 const sourceSlot = this.selectedSlot;
@@ -7117,7 +7448,7 @@
                 const backBtn = document.createElement('button');
                 backBtn.className = 'build-btn cancel';
                 backBtn.innerText = '返回建筑操作';
-                backBtn.onclick = () => this.handleSlotClick(sourceSlot);
+                backBtn.onclick = () => this.openSlotActionMenu(sourceSlot);
                 options.appendChild(backBtn);
                 options.style.display = 'flex';
             },
@@ -7491,36 +7822,46 @@
                 return group;
             },
 
+            getSweepDelay(position, minMetric, maxMetric, maxDelay = 140, reverse = false) {
+                const metric = position.x + position.z;
+                const span = Math.max(0.001, maxMetric - minMetric);
+                const t = (metric - minMetric) / span;
+                return (reverse ? (1 - t) : t) * maxDelay;
+            },
+
             async enterBattleScene(attacker, enemy) {
                 const enemyMesh = enemy.meshGroup || null;
                 this.battleSnapshot = this.captureBattleSnapshot(attacker, enemyMesh);
                 this.battleCameraFocus = attacker.meshGroup.position.clone();
                 const floor = this.createBattleFloor();
+                const mapMetrics = this.battleSnapshot.mapObjects.map(({ position }) => position.x + position.z);
+                const minMetric = mapMetrics.length ? Math.min(...mapMetrics) : 0;
+                const maxMetric = mapMetrics.length ? Math.max(...mapMetrics) : 1;
 
                 this.battleSnapshot.mapObjects.forEach(({ mesh, index, position }) => {
                     this.stopTileFloat(mesh);
                     new TWEEN.Tween(mesh.position)
-                        .to({ y: position.y - 10 }, 420)
-                        .delay(index * 14)
+                        .to({ y: position.y - 15 }, 280)
+                        .delay(this.getSweepDelay(position, minMetric, maxMetric, 110))
                         .easing(TWEEN.Easing.Back.In)
                         .start();
                 });
                 this.battleSnapshot.bystanders.forEach(({ mesh, index, position }) => {
                     new TWEEN.Tween(mesh.position)
-                        .to({ y: position.y - 9 }, 360)
-                        .delay(index * 36)
+                        .to({ y: position.y - 12 }, 240)
+                        .delay(this.getSweepDelay(position, minMetric, maxMetric, 90))
                         .easing(TWEEN.Easing.Back.In)
                         .start();
                 });
 
                 new TWEEN.Tween(floor.position)
-                    .to({ x: 5, y: 0, z: 5 }, 620)
-                    .easing(TWEEN.Easing.Elastic.Out)
+                    .to({ x: 5, y: 1.15, z: 5 }, 440)
+                    .easing(TWEEN.Easing.Back.Out)
                     .start();
 
-                await this.wait(360);
-                const heroPos = new THREE.Vector3(2.4, 0.35, 7.0);
-                const enemyPos = new THREE.Vector3(7.4, 0.55, 3.0);
+                await this.wait(220);
+                const heroPos = new THREE.Vector3(2.4, 1.45, 7.0);
+                const enemyPos = new THREE.Vector3(7.4, 1.55, 3.0);
 
                 new TWEEN.Tween(attacker.meshGroup.position)
                     .to({ x: heroPos.x, y: heroPos.y, z: heroPos.z }, 620)
@@ -7540,8 +7881,8 @@
                         .start();
                 }
 
-                this.focusBattleCamera(new THREE.Vector3(4.9, 0.4, 5.0), 1.25, 520);
-                await this.wait(700);
+                this.focusBattleCamera(new THREE.Vector3(4.9, 1.2, 5.0), 1.34, 420);
+                await this.wait(620);
                 await this.maybePauseDebug('battle-enter');
             },
 
@@ -7569,11 +7910,14 @@
                 if (!this.battleSnapshot) return;
                 this.setBattlePhase(BattlePhase.RESTORE);
                 const snapshot = this.battleSnapshot;
+                const mapMetrics = snapshot.mapObjects.map(({ position }) => position.x + position.z);
+                const minMetric = mapMetrics.length ? Math.min(...mapMetrics) : 0;
+                const maxMetric = mapMetrics.length ? Math.max(...mapMetrics) : 1;
                 snapshot.mapObjects.forEach(({ mesh, position, visible, index }) => {
                     mesh.visible = visible;
                     new TWEEN.Tween(mesh.position)
-                        .to({ x: position.x, y: position.y, z: position.z }, 440)
-                        .delay(index * 10)
+                        .to({ x: position.x, y: position.y, z: position.z }, 320)
+                        .delay(this.getSweepDelay(position, minMetric, maxMetric, 100, true))
                         .easing(TWEEN.Easing.Back.Out)
                         .onComplete(() => {
                             if (mesh.userData.floatingTile) this.startTileFloat(mesh, index);
@@ -7583,8 +7927,8 @@
                 snapshot.bystanders.forEach(({ mesh, position, rotation, scale, visible, index }) => {
                     mesh.visible = visible;
                     new TWEEN.Tween(mesh.position)
-                        .to({ x: position.x, y: position.y, z: position.z }, 420)
-                        .delay(index * 34)
+                        .to({ x: position.x, y: position.y, z: position.z }, 280)
+                        .delay(this.getSweepDelay(position, minMetric, maxMetric, 80, true))
                         .easing(TWEEN.Easing.Back.Out)
                         .start();
                     mesh.rotation.copy(rotation);
@@ -7609,7 +7953,7 @@
 
                 if (this.battleFloor) {
                     new TWEEN.Tween(this.battleFloor.position)
-                        .to({ y: -8 }, 360)
+                        .to({ y: -8 }, 260)
                         .easing(TWEEN.Easing.Back.In)
                         .onComplete(() => {
                             this.scene.remove(this.battleFloor);
@@ -7621,10 +7965,10 @@
                 this.camera.position.copy(snapshot.camera.position);
                 this.battleCameraFocus = null;
                 new TWEEN.Tween(this.camera)
-                    .to({ zoom: snapshot.camera.zoom }, 300)
+                    .to({ zoom: snapshot.camera.zoom }, 240)
                     .onUpdate(() => this.camera.updateProjectionMatrix())
                     .start();
-                await this.wait(620);
+                await this.wait(460);
                 this.battleSnapshot = null;
             },
 
@@ -7709,20 +8053,25 @@
                 heroBox.innerText = '';
                 enemyBox.innerText = '';
                 await this.focusBattleCamera(attacker.meshGroup, 1.68, 340);
-                await this.typeBattleText(heroBox, lines.hero);
+                this.positionTauntBoxForTarget(heroBox, attacker.meshGroup, 'hero');
+                await this.typeBattleText(heroBox, lines.hero, attacker.meshGroup, 'hero');
                 await this.wait(220);
                 await this.focusBattleCamera(enemyFocus, 1.78, 340);
-                await this.typeBattleText(enemyBox, lines.enemy);
+                this.positionTauntBoxForTarget(enemyBox, enemyFocus, 'enemy');
+                await this.typeBattleText(enemyBox, lines.enemy, enemyFocus, 'enemy');
                 await this.wait(420);
                 await this.maybePauseDebug('taunt');
                 await this.focusBattleCamera(new THREE.Vector3(4.9, 0.4, 5.0), 1.25, 300);
                 layer.style.display = 'none';
             },
 
-            async typeBattleText(element, text) {
+            async typeBattleText(element, text, anchorTarget = null, side = 'hero') {
                 element.innerText = '';
                 for (let i = 0; i < text.length; i++) {
                     element.innerText += text[i];
+                    if (anchorTarget) {
+                        this.positionTauntBoxForTarget(element, anchorTarget, side);
+                    }
                     await this.wait(24);
                 }
             },
@@ -7752,8 +8101,12 @@
             },
 
             waitForBattleCommand(attacker) {
-                this.drawBattleCards(attacker, this.battleDrawCount || 3);
-                this.renderBattleCommandUi(attacker, 'commands');
+                const drawCount = this.battleTurnDraws === 0
+                    ? (this.battleOpeningDrawCount || 5)
+                    : (this.battleDrawCount || 2);
+                this.drawBattleCards(attacker, drawCount);
+                this.battleTurnDraws += 1;
+                this.renderBattleCommandUi(attacker);
                 return new Promise(resolve => {
                     this.battleCommandResolver = resolve;
                     this.maybePauseDebug('commands');
@@ -7766,7 +8119,9 @@
                 const preparedSummary = [...(player.preparedBattleSummary || [])];
                 this.battleSupportCards = [...preparedCards, ...supportCards];
                 this.battleSupportSummary = [...preparedSummary, ...(supportPackage?.summary || [])];
-                this.battleDrawCount = 3 + Math.min(2, supportPackage?.extraDraw || 0);
+                this.battleOpeningDrawCount = 5 + Math.min(2, supportPackage?.extraDraw || 0);
+                this.battleDrawCount = 2;
+                this.battleTurnDraws = 0;
                 player.drawPile = this.shuffleCards([...(player.deck || []), ...preparedCards, ...supportCards]);
                 player.discardPile = [];
                 this.battleHand = [];
@@ -7784,20 +8139,23 @@
             },
 
             drawBattleCards(player, count = 3) {
-                const hand = [];
+                const drawn = [];
                 for (let i = 0; i < count; i++) {
                     if (player.drawPile.length === 0) {
                         player.drawPile = this.shuffleCards(player.discardPile);
                         player.discardPile = [];
                     }
                     if (player.drawPile.length === 0) break;
-                    hand.push(player.drawPile.pop());
+                    const cardId = player.drawPile.pop();
+                    this.battleHand.push(cardId);
+                    drawn.push(cardId);
                 }
-                this.battleHand = hand;
-                return hand;
+                return drawn;
             },
 
             renderBattleCards(player) {
+                this.renderBattleCommandUi(player);
+                return;
                 const battleUi = document.getElementById('battle-ui');
                 const hand = this.drawBattleCards(player, 3);
                 battleUi.innerHTML = '';
@@ -7852,6 +8210,46 @@
             renderBattleCommandUi(player, mode = 'commands') {
                 const battleUi = document.getElementById('battle-ui');
                 battleUi.innerHTML = '';
+
+                {
+                const hud = document.createElement('div');
+                hud.className = 'battle-deck-hud';
+                hud.innerHTML = `
+                    <div>抽牌堆 ${player.drawPile.length}</div>
+                    <div>弃牌堆 ${player.discardPile.length}</div>
+                    <div>手牌 ${this.battleHand.length}</div>
+                    <div>支援牌 ${this.battleSupportCards.length}</div>
+                `;
+                battleUi.appendChild(hud);
+
+                const cardRow = document.createElement('div');
+                cardRow.className = 'battle-skill-row battle-hand-row';
+                if (this.battleHand.length === 0) {
+                    const empty = document.createElement('button');
+                    empty.className = 'battle-card back';
+                    empty.onclick = () => this.chooseBattleCommand('flee');
+                    empty.innerHTML = '<strong>撤退</strong><em>行动</em><span>没有可用手牌，尝试脱离战斗。</span>';
+                    cardRow.appendChild(empty);
+                }
+                this.battleHand.forEach((cardId, index) => {
+                    const card = this.cardLibrary[cardId];
+                    const btn = document.createElement('button');
+                    btn.className = `battle-card ${card.kind || ''}`.trim();
+                    btn.onclick = () => this.chooseBattleCard(index);
+                    btn.innerHTML = `<strong>${card.name}</strong><em>${this.getCardKindLabel(card.kind)}</em><span>${card.text}</span>`;
+                    cardRow.appendChild(btn);
+                });
+
+                const fleeBtn = document.createElement('button');
+                fleeBtn.className = 'battle-card flee';
+                fleeBtn.onclick = () => this.chooseBattleCommand('flee');
+                fleeBtn.innerHTML = '<strong>撤退</strong><em>行动</em><span>保留手牌，尝试脱离战斗。</span>';
+                cardRow.appendChild(fleeBtn);
+
+                battleUi.appendChild(cardRow);
+                battleUi.style.display = 'flex';
+                }
+                return;
 
                 const commandStack = document.createElement('div');
                 commandStack.className = 'battle-command-stack';
@@ -7946,8 +8344,10 @@
 
             chooseBattleCard(index) {
                 if (!this.battleCommandResolver) return;
-                const cardId = this.battleHand[index];
+                const cardId = this.battleHand.splice(index, 1)[0];
                 if (!cardId) return;
+                const player = this.battleContext?.attacker || this.players[this.currentPlayerIndex];
+                player.discardPile.push(cardId);
                 this.resolveBattleChoice({ type: 'card', cardId });
             },
 
@@ -8591,10 +8991,6 @@
                     const command = attacker.isPlayer
                         ? await this.waitForBattleCommand(attacker)
                         : await this.chooseAutoBattleCommand(attacker, enemyState, kind, round);
-                    if (attacker.isPlayer && this.battleHand.length > 0) {
-                        attacker.discardPile.push(...this.battleHand);
-                        this.battleHand = [];
-                    }
                     let defend = false;
                     let blockValue = 0;
                     let playerDmg = 0;
@@ -8841,7 +9237,7 @@
 
                 const backBtn = document.createElement('button');
                 backBtn.className = 'battle-card back';
-                backBtn.onclick = () => this.handleSlotClick(slot);
+                backBtn.onclick = () => this.openSlotActionMenu(slot);
                 backBtn.innerHTML = '<strong>返回</strong><span>回到这座建筑的操作菜单。</span>';
                 options.appendChild(backBtn);
                 options.style.display = 'flex';
@@ -8965,6 +9361,7 @@
                 this.stopSlotHighlightOnly();
                 this.clearBranchChoiceArrows();
                 this.clearHoverState();
+                this.hideActionChoiceMenu();
                 this.hideBattleStatus();
                 this.restoreDiceOccluders();
                 this.resetGuardTransferMenu();
@@ -8973,6 +9370,7 @@
                 this.battleContext = null;
                 this.battleSupportCards = [];
                 this.battleSupportSummary = [];
+                this.actionSelectionMode = null;
                 this.setActionConsumed(false);
                 document.getElementById('build-menu').style.display = 'none';
                 document.getElementById('branch-menu').style.display = 'none';
@@ -9044,9 +9442,12 @@
         };
 
         // 页面加载完成后启动
-        window.onload = () => {
+        window.Game = Game;
+        if (document.readyState === 'loading') {
+            window.addEventListener('DOMContentLoaded', () => Game.init(), { once: true });
+        } else {
             Game.init();
-        };
+        }
     </script>
 </body>
 </html>

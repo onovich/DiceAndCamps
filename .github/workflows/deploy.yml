@@ -29,6 +29,7 @@ jobs:
         run: |
           mkdir -p _site
           cp index.html _site/
+          cp -r vendor _site/vendor
           cp design.md _site/
           cp .nojekyll _site/
 
@@ -47,4 +48,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
